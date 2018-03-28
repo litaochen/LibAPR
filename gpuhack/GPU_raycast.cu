@@ -96,7 +96,16 @@ cmdLineOptions read_command_line_options(int argc, char **argv) {
     return result;
 }
 
-
+__global__ void y_update(const std::size_t *row_info,
+                         const std::uint16_t *particle_y,
+                         const std::size_t* level_offset,
+                         const std::uint16_t *particle_data_input,
+                         std::uint16_t *particle_data_output,
+                         const std::uint16_t* level_x_num,
+                         const std::uint16_t* level_z_num,
+                         const std::uint16_t* level_y_num,
+                         const std::size_t level,
+                         const float* mvp);
 
 __global__ void raycast_by_level(
         const unsigned int width,
@@ -134,7 +143,7 @@ int main(int argc, char **argv) {
     timer.verbose_flag = true;
 
 
-    int number_reps = 400;
+    int number_reps = 1;
 
     apr.particles_intensities.copy_data_to_gpu();
 
@@ -213,6 +222,86 @@ int main(int argc, char **argv) {
     }
     ofp2.write(reinterpret_cast<const char*>(img.data()), imageSize*2);
     ofp2.close();
+
+
+
+
+    GPUAPRAccess gpuaprAccess2(aprIt);
+
+    ExtraParticleData<float> dummy(apr);
+    dummy.init_gpu(apr.total_number_particles());
+
+
+    std::vector<ExtraParticleData<uint16_t>> image_level;
+    image_level.resize(apr.level_max()+1);
+
+    float radius = 0.0f;//1.5f * apr.orginal_dimensions(0);
+    float theta = 0.0f;
+
+    glm::vec3 position = glm::vec3(1.5f*apr.orginal_dimensions(1) + radius * sin(theta),
+                                   1.5f * apr.orginal_dimensions(0) + radius * cos(theta),
+                                   1.5f * apr.orginal_dimensions(2));
+
+    glm::vec3 target = glm::vec3(0.5f*apr.orginal_dimensions(1),
+                                 0.5f*apr.orginal_dimensions(0),
+                                 -0.5f*apr.orginal_dimensions(2));
+
+    glm::vec3 up = glm::cross(glm::normalize(target-position), glm::vec3(1.0f, 0.0f, 0.0f));
+
+    mvp = glm::perspective(60.0f, 1024.0f/1024.0f, 0.2f, 1200.0f) * glm::lookAt(position, target, up);
+    cudaMemcpy(mvpArray, (void*)glm::value_ptr(mvp), 16 * sizeof(float), cudaMemcpyHostToDevice);
+    cudaDeviceSynchronize();
+
+    for (int level = apr.level_max(); level >= aprIt.level_min(); --level) {
+
+        std::size_t number_rows_l = apr.spatial_index_x_max(level) * apr.spatial_index_z_max(level);
+        std::size_t offset = gpuaprAccess2.h_level_offset[level];
+
+        image_level[level].data.resize(number_rows_l);
+        image_level[level].copy_data_to_gpu();
+
+        std::size_t x_num = apr.spatial_index_x_max(level);
+        std::size_t z_num = apr.spatial_index_z_max(level);
+        std::size_t y_num = apr.spatial_index_y_max(level);
+
+        dim3 threads_l(128, 1, 1);
+
+        int x_blocks = (x_num + 2 - 1) / 2;
+        int z_blocks = (z_num + 2 - 1) / 2;
+
+        dim3 blocks_l(x_blocks, 1, z_blocks);
+
+
+        y_update << < blocks_l, threads_l >> >
+                                (gpuaprAccess2.gpu_access.row_global_index,
+                                        gpuaprAccess2.gpu_access.y_part_coord,
+                                        gpuaprAccess2.gpu_access.level_offsets,
+                                        apr.particles_intensities.gpu_pointer,
+                                        image_level[level].gpu_pointer,
+                                        gpuaprAccess2.gpu_access.level_x_num,
+                                        gpuaprAccess2.gpu_access.level_z_num,
+                                        gpuaprAccess2.gpu_access.level_y_num,
+                                        level,mvpArray);
+
+
+        cudaDeviceSynchronize();
+
+        //copy data back from gpu
+        image_level[level].copy_data_to_host();
+
+        image_level[level].gpu_data.clear();
+        image_level[level].gpu_data.shrink_to_fit();
+    }
+
+
+    MeshData<uint16_t> img_level_output;
+    img_level_output.init(apr.orginal_dimensions(1),apr.orginal_dimensions(2),1);
+
+    std::copy(image_level[apr.level_max()].data.begin(),image_level[apr.level_max()].data.end(),img_level_output.mesh.begin());
+
+    TiffUtils::saveMeshAsTiff("max_level.tif", img_level_output);
+
+
 }
 
 
@@ -255,6 +344,11 @@ __global__ void reduce(std::uint16_t* inputImage,
     }
 
     resultImage[x + width * y] = result;
+
+
+
+
+
 }
 
 __device__ unsigned short atomicAddShort(unsigned short* address, unsigned short val) {
@@ -370,4 +464,138 @@ __global__ void raycast_by_level(
             }
         }
     }
+}
+__device__ void get_row_begin_end(std::size_t* index_begin,
+                                  std::size_t* index_end,
+                                  std::size_t current_row,
+                                  const std::size_t *row_info){
+
+    *index_end = (row_info[current_row]);
+
+    if (current_row == 0) {
+        *index_begin = 0;
+    } else {
+        *index_begin =(row_info[current_row-1]);
+    }
+
+
+};
+__global__ void y_update(const std::size_t *row_info,
+                                     const std::uint16_t *particle_y,
+                                     const std::size_t* level_offset,
+                                     const std::uint16_t *particle_data_input,
+                                     std::uint16_t *particle_data_output,
+                                     const std::uint16_t* level_x_num,
+                                     const std::uint16_t* level_z_num,
+                                     const std::uint16_t* level_y_num,
+                                     const std::size_t level,
+                                     const float* mvp) {
+
+    const int x_num = level_x_num[level];
+    const int y_num = level_y_num[level];
+    const int z_num = level_z_num[level];
+
+
+    int x_index = (2 * blockIdx.x + threadIdx.x/64);
+    int z_index = (2 * blockIdx.z + ((threadIdx.x+31)/32)%2);
+
+    int block = threadIdx.x/32;
+    int local_th = (threadIdx.x%32);
+
+    if(x_index >= x_num ){
+
+        return; //out of bounds
+    }
+
+    if(z_index >= z_num){
+
+        return; //out of bounds
+    }
+
+    std::size_t row_index =x_index + z_index*x_num + level_offset[level];
+
+    std::size_t global_index_begin_0;
+    std::size_t global_index_end_0;
+
+    __shared__ std::float_t f_cache[4][32];
+    __shared__ int y_cache[4][32];
+
+    //initialization to zero
+    f_cache[block][local_th]=0;
+    y_cache[block][local_th]=0;
+
+
+    uint16_t current_y=0;
+    //ying printf("hello begin %d end %d chunks %d number parts %d \n",(int) global_index_begin_0,(int) global_index_end_f, (int) number_chunk, (int) number_parts);
+
+
+    get_row_begin_end(&global_index_begin_0, &global_index_end_0, row_index, row_info);
+    std::size_t number_parts = global_index_end_0 - global_index_begin_0;
+    std::uint16_t number_chunk = ((number_parts+31)/32);
+
+    std::uint16_t number_y_chunk = (y_num+31)/32;
+
+    //initialize (i=0)
+    if (global_index_begin_0 + local_th < global_index_end_0) {
+        f_cache[block][local_th] = particle_data_input[global_index_begin_0 + local_th];
+    }
+
+    if ( global_index_begin_0 + local_th < global_index_end_0) {
+        y_cache[block][local_th] = particle_y[ global_index_begin_0 + local_th];
+    }
+
+    current_y = y_cache[block][local_th ];
+
+    uint16_t sparse_block = 0;
+
+    glm::mat4 theMVP = glm::make_mat4(mvp);
+
+    uint16_t width = x_num;
+    uint16_t height = z_num;
+
+    for (int y_block = 0; y_block < (number_y_chunk); ++y_block) {
+
+        __syncthreads();
+        //value less then current chunk then update.
+        if (current_y < y_block * 32) {
+            sparse_block++;
+            if (sparse_block * 32 + global_index_begin_0 + local_th < global_index_end_0) {
+                f_cache[block][local_th] = particle_data_input[sparse_block * 32 + global_index_begin_0 +
+                                                               local_th];
+            }
+
+            if (sparse_block * 32 + global_index_begin_0 + local_th < global_index_end_0) {
+                y_cache[block][local_th] = particle_y[sparse_block * 32 + global_index_begin_0 + local_th];
+            }
+
+        }
+
+        current_y = y_cache[block][local_th];
+
+        //do something
+        if (current_y < (y_block + 1) * 32 && current_y >= (y_block) * 32) {
+
+            float xWorld = global_position(x_index, 7, level);
+            float yWorld = global_position(current_y, 7, level);
+            float zWorld = global_position(z_index, 7, level);
+
+            uint16_t intensity = f_cache[block][local_th];
+
+            float ndc[3];
+            worldToScreen(theMVP, xWorld, yWorld, zWorld, width, height, (float*)&ndc);
+
+            if(floor(ndc[0]) > 0 && floor(ndc[0]) < width && ndc[1] > 0 && ndc[1] < height) {
+
+                unsigned int index = (unsigned int)floor(ndc[0])
+                                     + width * (unsigned int)floor(ndc[1]);
+
+                particle_data_output[index] = max(particle_data_output[index],intensity);
+
+            }
+
+        }
+
+    }
+
+
 }

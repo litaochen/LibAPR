@@ -39,7 +39,7 @@ buildTarget(CPU_pixel_conv_benchmark)
 
 #buildGPUTarget(GPU_full_storage)
 #buildGPUTarget(GPU_insert_dense)
-#buildGPUTarget(GPU_raycast)
+buildGPUTarget(GPU_raycast)
 #buildGPUTarget(GPU_insert_dense_conv)
 #buildGPUTarget(GPU_insert_dense_conv_dyn)
 #buildGPUTarget(GPU_dynamic_zx_access)
