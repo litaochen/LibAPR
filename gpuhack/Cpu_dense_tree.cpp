@@ -400,6 +400,10 @@ void compareTreeIntensities(APRTreeIterator<uint16_t>& treeIterator, ExtraPartic
                 if (errCnt < maxErrorPirintNum) std::cout << "ERROR: " << " idx: " << particle_number << " {" << newData.data[particle_number] << " vs old: " << oldData.data[particle_number] << "} on level: " << level << std::endl;
                 errCnt++;
             }
+
+            if(level==treeIterator.level_max()){
+                std::cout << newData.data[particle_number] << std::endl;
+            }
         }
     }
 
@@ -435,10 +439,23 @@ int main(int argc, char **argv) {
     compareTreeIntensities(treeIt, newMaxDsTree, oldMaxDsTree);
 
     // Do mean downsampling on DenseRepresentation and old representation
+
+    APRTimer timer;
+    timer.verbose_flag = true;
+
+    timer.start_timer("mean downsampling");
+
     std::cout << "\nMean Downsampling on new dense representation.\n";
     ExtraParticleData<float> newMeanDsTree = meanDownsampling(apr, dr, drTree, aprTree);
+
+    timer.stop_timer();
+
+    timer.start_timer("mean downsampling old");
+
     std::cout << "Mean Downsampling on old representation.\n";
     ExtraParticleData<float> oldMeanDsTree = meanDownsamplingOld(apr, aprTree);
+    timer.stop_timer();
+
     // Check if old and new way give same result
     std::cout << "Compare.\n";
     compareTreeIntensities(treeIt, newMeanDsTree, oldMeanDsTree);

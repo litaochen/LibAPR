@@ -547,6 +547,8 @@ int main(int argc, char **argv) {
     }
 
 
+    cudaDeviceSetCacheConfig(cudaFuncCachePreferL1);
+
     ////////////////////
     ///
     /// Example of doing our level,z,x access using the GPU data structure
@@ -599,6 +601,7 @@ int main(int argc, char **argv) {
     std::uint16_t*                   expected = thrust::raw_pointer_cast(d_test_access_data.data());
     const std::float_t*		     stencil_pointer =  thrust::raw_pointer_cast(d_stencil.data());		// stencil pointer
 
+
     if(cudaGetLastError()!=cudaSuccess){
         std::cerr << "memory transfers failed!\n";
     }
@@ -646,12 +649,12 @@ int main(int argc, char **argv) {
                         dim3 threads_load(threads_d);
                         dim3 blocks_load(chunk);
 
-//                        std::cout << parts_per_block << std::endl;
+                        //std::cout << parts_per_block << std::endl;
 //                        std::cout << parts_begin << std::endl;
 //                        std::cout << num_parts << std::endl;
 
 
-                        load_balance << < blocks, threads >> >
+                        load_balance <<< blocks, threads >>>
                                                   (lvl, z, levels, _x_end, _ind_end, offsets, x_num, num_blocks+1, parts_per_block, parts_begin);
                         cudaDeviceSynchronize();
 
@@ -661,7 +664,7 @@ int main(int argc, char **argv) {
                                  //                      (lvl, z, levels, _x_end, _ind_end, offsets, x_num, expected, num_blocks+1);
 
 
-                        insert_dynamic << < blocks_load, threads_load >> > (lvl,
+                        insert_dynamic <<< blocks_load, threads_load >>> (lvl,
                                 z,
                                 levels,
                                 y_ex,
@@ -701,7 +704,7 @@ int main(int argc, char **argv) {
 //                            expected,
 //                            stencil_size, stencil_half, stencil_pointer);
 
-                        push_back_dynamic << < blocks_load, threads_load >> > (lvl,
+                        push_back_dynamic <<< blocks_load, threads_load >>> (lvl,
                                 z,
                                 levels,
                                 y_ex,
@@ -746,6 +749,8 @@ int main(int argc, char **argv) {
     /// Now check the data
     ///
     ////////////////////////////
+
+
 
     ExtraParticleData<float> utest_data(apr);
     apr.parameters.input_dir = options.directory;
