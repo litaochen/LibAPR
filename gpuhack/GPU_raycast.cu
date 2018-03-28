@@ -53,7 +53,6 @@
 #include "thrust/copy.h"
 
 #include "GPUAPRAccess.hpp"
-#include "../../../../../usr/include/c++/7.3.0/cstdint"
 
 struct cmdLineOptions{
     std::string output = "output";
@@ -139,9 +138,16 @@ int main(int argc, char **argv) {
 
     apr.particles_intensities.copy_data_to_gpu();
 
-    uint16_t* image = 0;
-    uint16_t* finalImage = 0;
-    uint16_t* finalImageHost = new uint16_t[1024*1024*sizeof(uint16_t)];
+    unsigned int imageSize = apr.orginal_dimensions(1) * apr.orginal_dimensions(2);
+    unsigned int imageSizeWithLevels = imageSize * (apr.level_max() - apr.level_min() + 1);
+
+    thrust::device_vector<std::uint16_t> image;
+    thrust::device_vector<std::uint16_t> finalImage;
+    thrust::host_vector<std::uint16_t> finalImageHost;
+
+    image.resize(imageSizeWithLevels, 0);
+    finalImage.resize(imageSize, 0);
+    finalImageHost.resize(imageSizeWithLevels, 0);
 
     glm::mat4 mvp = glm::mat4(1.0f);
     float* mvpArray = 0;
@@ -157,44 +163,56 @@ int main(int argc, char **argv) {
 
     mvp = glm::perspective(50.0f, 1024.0f/1024.0f, 0.2f, 200.0f) * glm::lookAt(glm::vec3(0.0f, 0.0f, -3.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
     cudaMalloc(&mvpArray, 16 * sizeof(float));
-    cudaMalloc(&image, 1024 * 1024 * sizeof(uint16_t) * (apr.level_max() - apr.level_min() + 1));
-    cudaMalloc(&finalImage, 1024 * 1024 * sizeof(uint16_t));
-
     cudaMemcpy(mvpArray, (void*)glm::value_ptr(mvp), 16 * sizeof(float), cudaMemcpyHostToDevice);
 
     cudaDeviceSynchronize();
 
-    std::cout << "Will raycast " << number_reps << " frames" << std::endl;
+    std::cout << "Will raycast " << number_reps << " " << apr.orginal_dimensions(1) << "x" << apr.orginal_dimensions(2) << " frames with " << blocks_dyn.x << "," << blocks_dyn.y << "," << blocks_dyn.z << " blocks/" << threads_dyn.x << "," << threads_dyn.y << "," << threads_dyn.z << " threads." << std::endl;
     timer.start_timer("raycasting");
 
     for(unsigned int run = 0; run < number_reps; run++) {
-        mvp = glm::perspective(50.0f, 1024.0f/1024.0f, 0.2f, 200.0f) * glm::lookAt(glm::vec3(0.0f, 0.0f, -3.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+        mvp = glm::perspective(50.0f, 1024.0f/1024.0f, 0.2f, 200.0f) * glm::lookAt(
+                glm::vec3(0.5f*apr.orginal_dimensions(1), 0.5f * apr.orginal_dimensions(0), 0.5f * apr.orginal_dimensions(2)),
+                glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         cudaMemcpy(mvpArray, (void*)glm::value_ptr(mvp), 16 * sizeof(float), cudaMemcpyHostToDevice);
         cudaDeviceSynchronize();
 
         raycast_by_level<<<blocks_dyn, threads_dyn>>> (
-                1024, 1024, apr.level_min(), apr.level_max(), mvpArray,
+                apr.orginal_dimensions(1), apr.orginal_dimensions(2), apr.level_min(), apr.level_max(), mvpArray,
                         gpuaprAccess.gpu_access.row_info,
                         gpuaprAccess.gpu_access._chunk_index_end,
                         gpuaprAccess.actual_number_chunks,
                         gpuaprAccess.gpu_access.y_part_coord,
                         apr.particles_intensities.gpu_pointer,
-                        image);
+                        (uint16_t*)thrust::raw_pointer_cast(image.data()));
 
+        cudaDeviceSynchronize();
         reduce<<<32, 32>>> (
-              image, 1024, 1024, apr.level_max()-apr.level_min(), finalImage);
+              thrust::raw_pointer_cast(image.data()), apr.orginal_dimensions(1), apr.orginal_dimensions(2), apr.level_max()-apr.level_min(), thrust::raw_pointer_cast(finalImage.data()));
         cudaDeviceSynchronize();
 
-        cudaMemcpy(finalImageHost, image, 1024*1024*sizeof(uint16_t), cudaMemcpyDeviceToHost);
-        cudaDeviceSynchronize();
+//        cudaMemcpy(finalImageHost, image, 1024*1024* sizeof(uint16_t) * (apr.level_max() - apr.level_min() + 1), cudaMemcpyDeviceToHost);
     }
 
+    thrust::copy(image.begin(), image.end(), finalImageHost.begin());
 
     timer.stop_timer();
 
     std::ofstream ofp("raycast_cuda.raw", std::ios::out | std::ios::binary);
-    ofp.write(reinterpret_cast<const char*>(finalImageHost), 1024*1024*sizeof(uint16_t));
+    ofp.write(reinterpret_cast<const char*>(finalImageHost.data()), imageSizeWithLevels);
     ofp.close();
+
+    std::ofstream ofp2("raycast_cuda-high.raw", std::ios::out | std::ios::binary);
+    std::vector<uint16_t> img;
+    unsigned int idx = 0;
+    for(auto val: finalImageHost) {
+        if(idx % 4 == 0) {
+            img.push_back(val);
+        }
+        idx++;
+    }
+    ofp2.write(reinterpret_cast<const char*>(img.data()), imageSize*2);
+    ofp2.close();
 }
 
 
@@ -239,6 +257,14 @@ __global__ void reduce(std::uint16_t* inputImage,
     resultImage[x + width * y] = result;
 }
 
+__device__ unsigned short atomicAddShort(unsigned short* address, unsigned short val) {
+    unsigned int *base_address = (unsigned int *) ((size_t) address & ~2);
+    unsigned int long_val = ((size_t) address & 2) ? ((unsigned int) val << 16) : val;
+    unsigned int long_old = atomicAdd(base_address, long_val);
+
+    return ((size_t) address & 2) ? (unsigned short) (long_old >> 16) : (unsigned short) (long_old & 0xffff);
+}
+
 __global__ void raycast_by_level(
         const unsigned int width,
         const unsigned int height,
@@ -252,7 +278,7 @@ __global__ void raycast_by_level(
         const std::uint16_t* particle_data,
         std::uint16_t* resultImage) {
 
-    float global_scale = 0.005f;
+    float global_scale = 0.05f;
     glm::mat4 theMVP = glm::make_mat4(mvp);
     const std::uint8_t levelCount = maxLevel - minLevel + 1;
 
@@ -304,9 +330,12 @@ __global__ void raycast_by_level(
             for (std::size_t particle_global_index = particle_global_index_begin; particle_global_index < particle_global_index_end; ++particle_global_index) {
                 y = particle_y[particle_global_index];
 
-                float xWorld = global_position(x, maxLevel, level) * global_scale;
-                float yWorld = global_position(y, maxLevel, level) * global_scale;
-                float zWorld = global_position(z, maxLevel, level) * global_scale;
+                float xWorld = global_position(x, maxLevel, level);
+                float yWorld = global_position(y, maxLevel, level);
+                float zWorld = global_position(z, maxLevel, level);
+//                xWorld = x;
+//                yWorld = y;
+//                zWorld = z;
 
                 intensity = particle_data[particle_global_index];
 
@@ -317,16 +346,25 @@ __global__ void raycast_by_level(
 //                printf("matrix: %f %f %f %f / %f %f %f %f / %f %f %f %f / %f %f %f %f\n", p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11], p[12], p[13], p[14], p[15]);
 //                printf("x/y/z -> w/h/z'/l: %f %f %f -> %f %f %f %d (%d, %d - %d)\n", xWorld, yWorld, zWorld, ndc[0], ndc[1], ndc[2], levelNum, level, minLevel, maxLevel);
                 if(floor(ndc[0]) > 0 && floor(ndc[0]) < width && ndc[1] > 0 && ndc[1] < height) {
-//                    printf("x/y/z -> w/h/z'/l: %f %f %f -> %f %f %f %d (%d, %d - %d)\n", xWorld, yWorld, zWorld, ndc[0], ndc[1], ndc[2], levelNum, level, minLevel, maxLevel);
-                    unsigned int index = levelCount * (unsigned int)floor(ndc[0])
-                                         + levelCount * width * (unsigned int)floor(ndc[1])
-                                         + levelNum;
-//                    resultImage[index] = max(resultImage[index], intensity);
-//                        resultImage[index] = intensity;
-//                    if(intensity > 0) {
-//                        resultImage[index] = intensity;
+//                    if(level == 7) {
+//                        printf("x/y/z/l -> w/h/z'/l: %d %d %d %d -> %f %f %f %d (%d, %d - %d)\n", x, y, z, level,
+//                               ndc[0], ndc[1], ndc[2], levelNum, level, minLevel, maxLevel);
 //                    }
-                    atomicAdd(resultImage)
+//                    printf("x/y/z -> w/h/z'/l: %f %f %f -> %f %f %f %d (%d, %d - %d)\n", xWorld, yWorld, zWorld, ndc[0], ndc[1], ndc[2], levelNum, level, minLevel, maxLevel);
+//                    unsigned int index = levelCount * (unsigned int)floor(ndc[0])
+//                                         + levelCount * width * (unsigned int)floor(ndc[1])
+//                                         + levelNum;
+                    unsigned int index = (unsigned int)floor(ndc[0])
+                                         + width * (unsigned int)floor(ndc[1]);
+//                    resultImage[index] = max(resultImage[index], intensity);
+                        resultImage[index] = intensity;
+//                    if(intensity > 0) {
+//                        resultImage[index] = max(resultImage[index], intensity);
+//                    }
+//                    atomicAdd((unsigned int*)resultImage[index], (unsigned int)intensity);
+//                    atomicMax((unsigned int*)resultImage + index/2, (unsigned int)intensity);
+//                      atomicAddShort((unsigned short*)resultImage + index , (unsigned short)intensity);
+//                        resultImage[chunk_index] = 100;
 //                    printf("Setting result to %d\n", intensity);
                 }
             }

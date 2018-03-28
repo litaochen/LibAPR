@@ -20,6 +20,8 @@ iteration strategies on the APR.
 #include <iostream>
 #include <cmath>
 #include "Example_apr_iterate.h"
+#include "../src/misc/APRTimer.hpp"
+#include "../src/data_structures/APR/APR.hpp"
 
 
 int main(int argc, char **argv) {
