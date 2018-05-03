@@ -332,6 +332,11 @@ void APRConverter<ImageType>::get_gradient(MeshData<ImageType> &image_temp, Mesh
     fine_grained_timer.start_timer("threshold");
     threshold_gradient(grad_temp,local_scale_temp,par.Ip_th + bspline_offset);
     fine_grained_timer.stop_timer();
+
+
+    std::string output_path = "/Users/joeljonsson/Documents/STUFF/grad.tif"; // testing
+    //write output as tiff
+    TiffUtils::saveMeshAsTiff(output_path, grad_temp);
 }
 
 template<typename ImageType>
