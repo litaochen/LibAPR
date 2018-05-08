@@ -256,6 +256,9 @@ void APRConverter<ImageType>::get_local_particle_cell_set(MeshData<ImageType> &g
     }
     fine_grained_timer.stop_timer();
 
+    //write output as tiff
+    TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/gradoverscale.tif", local_scale_temp);
+
     float min_dim = std::min(par.dy,std::min(par.dx,par.dz));
     float level_factor = pow(2,(*apr).level_max())*min_dim;
 
@@ -267,6 +270,8 @@ void APRConverter<ImageType>::get_local_particle_cell_set(MeshData<ImageType> &g
     compute_level_for_array(local_scale_temp,level_factor,par.rel_error);
     fill(l_max,local_scale_temp);
     fine_grained_timer.stop_timer();
+    
+
 
     fine_grained_timer.start_timer("level_loop_initialize_tree");
     for(int l_ = l_max - 1; l_ >= l_min; l_--){
@@ -281,6 +286,7 @@ void APRConverter<ImageType>::get_local_particle_cell_set(MeshData<ImageType> &g
         local_scale_temp.swap(local_scale_temp2);
     }
     fine_grained_timer.stop_timer();
+    
 }
 
 template<typename ImageType>
@@ -430,7 +436,12 @@ void APRConverter<ImageType>::init_apr(APR<ImageType>& aAPR,MeshData<T>& input_i
     aAPR.apr_access.org_dims[2] = input_image.z_num;
 
     int max_dim = std::max(std::max(aAPR.apr_access.org_dims[1], aAPR.apr_access.org_dims[0]), aAPR.apr_access.org_dims[2]);
-    int min_dim = std::min(std::min(aAPR.apr_access.org_dims[1], aAPR.apr_access.org_dims[0]), aAPR.apr_access.org_dims[2]);
+    //int min_dim = std::min(std::min(aAPR.apr_access.org_dims[1], aAPR.apr_access.org_dims[0]), aAPR.apr_access.org_dims[2]);
+
+    int min_dim = max_dim;
+    min_dim = input_image.y_num > 1 ? std::min(min_dim, (int) input_image.y_num) : min_dim;
+    min_dim = input_image.x_num > 1 ? std::min(min_dim, (int) input_image.x_num) : min_dim;
+    min_dim = input_image.z_num > 1 ? std::min(min_dim, (int) input_image.z_num) : min_dim;
 
     int levelMax = ceil(std::log2(max_dim));
     // TODO: why minimum level is forced here to be 2?
@@ -446,6 +457,7 @@ void APRConverter<ImageType>::auto_parameters(const MeshData<T>& input_img){
     //  Simple automatic parameter selection for 3D APR Flouresence Images
     //
 
+    // TODO: fix auto params for 2D
     if(input_img.z_num > 1) {
         //take the current input parameters
         float lambda_input = par.lambda;
