@@ -127,6 +127,7 @@ void ComputeGradient::get_smooth_bspline_3D(MeshData<T>& input, float lambda) {
         spline_timer.stop_timer();
     }
 
+
     //X direction bspline
     if (input.x_num > 1) {
         spline_timer.start_timer("bspline_filt_rec_x");
@@ -134,12 +135,14 @@ void ComputeGradient::get_smooth_bspline_3D(MeshData<T>& input, float lambda) {
         spline_timer.stop_timer();
     }
 
+
     //Z direction bspline
     if (input.z_num > 1) {
         spline_timer.start_timer("bspline_filt_rec_z");
         bspline_filt_rec_z(input, lambda, tol);
         spline_timer.stop_timer();
     }
+
 }
 
 
@@ -178,7 +181,7 @@ void ComputeGradient::bspline_filt_rec_y(MeshData<T>& image,float lambda,float t
     const size_t x_num = image.x_num;
     const size_t y_num = image.y_num;
 
-    const size_t k0 = std::max(std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),z_num),(size_t)2);
+    const size_t k0 = std::max(std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),y_num),(size_t)2);
     const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
 
     // for boundaries
@@ -262,6 +265,8 @@ void ComputeGradient::bspline_filt_rec_y(MeshData<T>& image,float lambda,float t
     btime.stop_timer();
 
 
+
+
     btime.start_timer("backward_loop_y");
     #ifdef HAVE_OPENMP
 	#pragma omp parallel for default(shared)
@@ -287,6 +292,7 @@ void ComputeGradient::bspline_filt_rec_y(MeshData<T>& image,float lambda,float t
         }
     }
     btime.stop_timer();
+
 }
 
 template<typename T>
@@ -464,7 +470,7 @@ void ComputeGradient::bspline_filt_rec_x(MeshData<T>& image,float lambda,float t
     const size_t x_num = image.x_num;
     const size_t y_num = image.y_num;
 
-    const size_t k0 = std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),z_num);
+    const size_t k0 = std::min((size_t)(ceil(std::abs(log(tol)/log(rho)))),x_num);
     const float norm_factor = pow((1 - 2.0*rho*cos(omg) + pow(rho,2)),2);
 
     //////////////////////////////////////////////////////////////
