@@ -121,19 +121,25 @@ void ComputeGradient::get_smooth_bspline_3D(MeshData<T>& input, float lambda) {
     float tol = 0.0001;
 
     //Y direction bspline
-    spline_timer.start_timer("bspline_filt_rec_y");
-    bspline_filt_rec_y(input,lambda,tol);
-    spline_timer.stop_timer();
+    if (input.y_num > 1) {
+        spline_timer.start_timer("bspline_filt_rec_y");
+        bspline_filt_rec_y(input, lambda, tol);
+        spline_timer.stop_timer();
+    }
 
     //X direction bspline
-    spline_timer.start_timer("bspline_filt_rec_x");
-    bspline_filt_rec_x(input,lambda,tol);
-    spline_timer.stop_timer();
+    if (input.x_num > 1) {
+        spline_timer.start_timer("bspline_filt_rec_x");
+        bspline_filt_rec_x(input, lambda, tol);
+        spline_timer.stop_timer();
+    }
 
     //Z direction bspline
-    spline_timer.start_timer("bspline_filt_rec_z");
-    bspline_filt_rec_z(input,lambda,tol);
-    spline_timer.stop_timer();
+    if (input.z_num > 1) {
+        spline_timer.start_timer("bspline_filt_rec_z");
+        bspline_filt_rec_z(input, lambda, tol);
+        spline_timer.stop_timer();
+    }
 }
 
 

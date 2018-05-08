@@ -300,9 +300,16 @@ void APRConverter<ImageType>::get_gradient(MeshData<ImageType> &image_temp, Mesh
     fine_grained_timer.stop_timer();
 
 
+
+    //write output as tiff
+    TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/spline.tif", image_temp);
+
+
+
     fine_grained_timer.start_timer("calc_bspline_fd_mag_ds");
     calc_bspline_fd_ds_mag(image_temp,grad_temp,par.dx,par.dy,par.dz);
     fine_grained_timer.stop_timer();
+
 
     fine_grained_timer.start_timer("down-sample_b-spline");
     downsample(image_temp, local_scale_temp,
@@ -311,15 +318,21 @@ void APRConverter<ImageType>::get_gradient(MeshData<ImageType> &image_temp, Mesh
     fine_grained_timer.stop_timer();
 
     if(par.lambda > 0){
-        fine_grained_timer.start_timer("calc_inv_bspline_y");
-        calc_inv_bspline_y(local_scale_temp);
-        fine_grained_timer.stop_timer();
-        fine_grained_timer.start_timer("calc_inv_bspline_x");
-        calc_inv_bspline_x(local_scale_temp);
-        fine_grained_timer.stop_timer();
-        fine_grained_timer.start_timer("calc_inv_bspline_z");
-        calc_inv_bspline_z(local_scale_temp);
-        fine_grained_timer.stop_timer();
+        if(image_temp.y_num > 1) {
+            fine_grained_timer.start_timer("calc_inv_bspline_y");
+            calc_inv_bspline_y(local_scale_temp);
+            fine_grained_timer.stop_timer();
+        }
+        if(image_temp.x_num > 1) {
+            fine_grained_timer.start_timer("calc_inv_bspline_x");
+            calc_inv_bspline_x(local_scale_temp);
+            fine_grained_timer.stop_timer();
+        }
+        if(image_temp.z_num > 1) {
+            fine_grained_timer.start_timer("calc_inv_bspline_z");
+            calc_inv_bspline_z(local_scale_temp);
+            fine_grained_timer.stop_timer();
+        }
     }
 
     fine_grained_timer.start_timer("load_and_apply_mask");
@@ -334,9 +347,9 @@ void APRConverter<ImageType>::get_gradient(MeshData<ImageType> &image_temp, Mesh
     fine_grained_timer.stop_timer();
 
 
-    std::string output_path = "/Users/joeljonsson/Documents/STUFF/grad.tif"; // testing
     //write output as tiff
-    TiffUtils::saveMeshAsTiff(output_path, grad_temp);
+    TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/gradmag.tif", grad_temp);
+
 }
 
 template<typename ImageType>
@@ -386,6 +399,10 @@ void APRConverter<ImageType>::get_local_intensity_scale(MeshData<float> &local_s
     calc_sat_mean_z(local_scale_temp,win_z2);
     rescale_var_and_threshold( local_scale_temp, var_rescale,par);
     fine_grained_timer.stop_timer();
+
+    std::string output_path = "/Users/joeljonsson/Documents/STUFF/scale.tif"; // testing
+    //write output as tiff
+    TiffUtils::saveMeshAsTiff(output_path, local_scale_temp);
 }
 
 
