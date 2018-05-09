@@ -92,6 +92,7 @@ void PullingScheme::initialize_particle_cell_tree(APR<T>& apr) {
                                    ceil((1.0 * apr.apr_access.org_dims[1]) / pow(2.0, 1.0 * l_max - l + 1)),
                                    ceil((1.0 * apr.apr_access.org_dims[2]) / pow(2.0, 1.0 * l_max - l + 1)), EMPTY);
     }
+    
 }
 
 void PullingScheme::pulling_scheme_main() {
