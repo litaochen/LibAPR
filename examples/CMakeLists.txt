@@ -5,6 +5,7 @@ endmacro(buildTarget)
 
 buildTarget(Example_get_apr)
 buildTarget(Example_apr_iterate)
+buildTarget(Example_apr_tree)
 buildTarget(Example_reconstruct_image)
 buildTarget(Example_compress_apr)
 buildTarget(Example_produce_paraview_file)
