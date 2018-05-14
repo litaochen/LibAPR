@@ -93,7 +93,7 @@ int main(int argc, char **argv) {
         counter++;
         //std::cout << apr_tree_iterator.x() << " " << apr_tree_iterator.y() << " " << (int)apr_tree_iterator.type() << " " << apr_tree_iterator.global_index() << std::endl;
 
-        for (int direction = 0; direction < 6; ++direction) {
+        for (int direction = 0; direction < 2*apr.apr_access.number_dimensions; ++direction) {
             apr_tree_iterator.find_neighbours_in_direction(direction);
             // Neighbour Particle Cell Face definitions [+y,-y,+x,-x,+z,-z] =  [0,1,2,3,4,5]
             float counter = 0;
@@ -118,7 +118,7 @@ int main(int argc, char **argv) {
     APRTreeNumerics::pull_down_tree_to_particles(apr,apr_tree,local_max_parts,tree_data,level_offset);
 
     // write result to image
-    MeshData<uint16_t> local_max_image;
+    PixelData<uint16_t> local_max_image;
     apr.interp_img(local_max_image,local_max_parts);
 
     std::string image_file_name = options.directory + name + "_tree_max.tif";
