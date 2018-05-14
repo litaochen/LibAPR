@@ -47,7 +47,7 @@ public:
             float current_intensity = apr.particles_intensities[apr_iterator];
 
             //loop over all the neighbours and set the neighbour iterator to it
-            for (int dimension = 0; dimension < 3; ++dimension) {
+            for (int dimension = 0; dimension < apr.apr_access.number_dims(); ++dimension) {
                 float gradient_estimate= 0;
 
                 float counter_dir = 0;

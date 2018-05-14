@@ -9,7 +9,7 @@ Usage:
 
 (using *_apr.h5 output of Example_get_apr)
 
-Example_apr_neighbour_access -i input_image_tiff -d input_directory
+Example_apr_neighbour_access -i input_apr -d input_directory
 
 Note: There is no output, this file is best utilized by looking at the source code for example (test/Examples/Example_apr_neighbour_access.cpp) of how to code different
 neighbour iteration strategies on the APR.
@@ -55,6 +55,8 @@ int main(int argc, char **argv) {
     APRIterator<uint16_t> neighbour_iterator(apr);
     APRIterator<uint16_t> apr_iterator(apr);
 
+    uint8_t ndirections = apr.apr_access.number_dims() * 2;
+
     timer.start_timer("APR serial iterator neighbours loop");
 
     //Basic serial iteration over all particles
@@ -73,7 +75,7 @@ int main(int argc, char **argv) {
             float temp = 0;
 
             //loop over all the neighbours and set the neighbour iterator to it
-            for (int direction = 0; direction < 6; ++direction) {
+            for (int direction = 0; direction < ndirections; ++direction) {
                 // Neighbour Particle Cell Face definitions [+y,-y,+x,-x,+z,-z] =  [0,1,2,3,4,5]
                 apr_iterator.find_neighbours_in_direction(direction);
 
@@ -96,6 +98,7 @@ int main(int argc, char **argv) {
 
     timer.stop_timer();
 
+
     ////////////////////////////
     ///
     /// OpenMP Parallel loop iteration
@@ -103,6 +106,7 @@ int main(int argc, char **argv) {
     ///////////////////////////
 
     //initialization of the iteration structures
+
 
     ExtraParticleData<float> neigh_xm(apr);
 
@@ -118,7 +122,7 @@ int main(int argc, char **argv) {
             apr_iterator.set_iterator_to_particle_by_number(particle_number);
 
             //loop over all the neighbours and set the neighbour iterator to it
-            for (int direction = 0; direction < 6; ++direction) {
+            for (int direction = 0; direction < ndirections; ++direction) {
                 apr_iterator.find_neighbours_in_direction(direction);
                 // Neighbour Particle Cell Face definitions [+y,-y,+x,-x,+z,-z] =  [0,1,2,3,4,5]
                 for (int index = 0; index < apr_iterator.number_neighbours_in_direction(direction); ++index) {
@@ -136,9 +140,11 @@ int main(int argc, char **argv) {
     timer.stop_timer();
 
 
+
     /*
      *  Access only one directions neighbour
      */
+
 
     ExtraParticleData<float> type_sum(apr);
 
@@ -154,7 +160,7 @@ int main(int argc, char **argv) {
                 //needed step for any loop (update to the next part)
                 apr_iterator.set_iterator_to_particle_by_number(particle_number);
 
-                const unsigned int direction = 3;
+                const unsigned int direction = 1;
                 //now we only update the neighbours, and directly access them through a neighbour iterator
                 apr_iterator.find_neighbours_in_direction(direction); // 3 = -x face
 

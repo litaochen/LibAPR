@@ -62,10 +62,10 @@ int main(int argc, char **argv) {
     std::cout << "--------------------" << std::endl;
 
     ParticleCell random_particle_cell;
-    random_particle_cell.x = 10;
+    random_particle_cell.x = 0;
     random_particle_cell.y = 10;
-    random_particle_cell.z = 10;
-    random_particle_cell.level = 4;
+    random_particle_cell.z = 0;
+    random_particle_cell.level = 6;
 
     bool found = apr_iterator.set_iterator_by_particle_cell(random_particle_cell);
 
@@ -76,11 +76,11 @@ int main(int argc, char **argv) {
     }
 
     std::cout << std::endl;
-    std::cout << "Search for a Particle Cell that we know exists, and has global index of 1000" << std::endl;
+    std::cout << "Search for a Particle Cell that we know exists, and has global index of 72" << std::endl;
     std::cout << "--------------------" << std::endl;
 
-    //now lets find a Particle Cell we know exits by setting the Iterator to the 1000th particle
-    apr_iterator.set_iterator_to_particle_by_number((uint32_t)1000);
+    //now lets find a Particle Cell we know exits by setting the Iterator to the 72nd particle
+    apr_iterator.set_iterator_to_particle_by_number((uint32_t)72);
 
     random_particle_cell.x = apr_iterator.x();
     random_particle_cell.y = apr_iterator.y();
@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
     found = apr_iterator.set_iterator_by_global_coordinate(x,y,z);
 
     std::cout << std::endl;
-    std::cout << "Searching for Particle Cell thats spatial domain contains (x,y,z)=(" << x << "," << y << "," << z << ") " << std::endl;
+    std::cout << "Searching for Particle Cell whose spatial domain contains (x,y,z)=(" << x << "," << y << "," << z << ") " << std::endl;
     std::cout << "--------------------" << std::endl;
 
     if(!found){

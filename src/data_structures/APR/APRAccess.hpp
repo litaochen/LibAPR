@@ -152,7 +152,7 @@ public:
         static constexpr int8_t dir_x[6] = { 0, 0, 1, -1, 0, 0};
         static constexpr int8_t dir_z[6] = { 0, 0, 0, 0, 1, -1};
 
-        static constexpr uint8_t children_index_offsets[4][2] = {{0,0},{0,1},{1,0},{1,1}};
+        static constexpr uint8_t children_index_offsets[4][2] = {{0,0},{1,0},{0,1},{1,1}};
 
         unsigned int dir;
 
@@ -247,16 +247,30 @@ public:
         return ((uint16_t)(x-1)>(x_num[level]-3)) | ((uint16_t)(z-1)>(z_num[level]-3));
     }
 
+    inline uint8_t number_dims() {
+        return ((org_dims[0] > 1) + (org_dims[1] > 1) + (org_dims[2] > 1));
+    }
+
     inline uint8_t number_neighbours_in_direction(const uint8_t& level_delta){
         //
         //  Gives the maximum number of neighbours in a direction given the level_delta.
         //
 
         switch (level_delta){
-            case _LEVEL_INCREASE:
-                return 4;
+
             case _NO_NEIGHBOUR:
                 return 0;
+
+            case _LEVEL_INCREASE:
+
+                switch (number_dims()) {
+                    case 1:
+                        return 1;
+                    case 2:
+                        return 2;
+                    case 3:
+                        return 4;
+                }
         }
         return 1;
     }

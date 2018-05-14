@@ -35,7 +35,7 @@ protected:
 
     uint8_t highest_resolution_type;
 
-    bool check_neigh_flag = false;
+    bool check_neigh_flag = true;
 
     const uint16_t shift[6] = {YP_LEVEL_SHIFT,YM_LEVEL_SHIFT,XP_LEVEL_SHIFT,XM_LEVEL_SHIFT,ZP_LEVEL_SHIFT,ZM_LEVEL_SHIFT};
     const uint16_t mask[6] = {YP_LEVEL_MASK,YM_LEVEL_MASK,XP_LEVEL_MASK,XM_LEVEL_MASK,ZP_LEVEL_MASK,ZM_LEVEL_MASK};
@@ -507,10 +507,19 @@ public:
     inline uint8_t number_neighbours_in_direction(const uint8_t& face){
 
         switch (level_delta){
-            case _LEVEL_INCREASE:
-                return 4;
+
             case _NO_NEIGHBOUR:
                 return 0;
+
+            case _LEVEL_INCREASE:
+                switch (apr_access->number_dims()) {
+                    case 1:
+                        return 1;
+                    case 2:
+                        return 2;
+                    case 3:
+                        return 4;
+                }
         }
         return 1;
 
@@ -601,7 +610,7 @@ public:
 
         //Then check from the highest level to lowest.
         ParticleCell particle_cell;
-        particle_cell.y = round(y);
+        particle_cell.y = round(y); // Sometimes causes bad access. Change to floor?
         particle_cell.x = round(x);
         particle_cell.z = round(z);
         particle_cell.level = level_max();
