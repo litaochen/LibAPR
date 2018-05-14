@@ -512,7 +512,7 @@ public:
                 return 0;
 
             case _LEVEL_INCREASE:
-                switch (apr_access->number_dims()) {
+                switch (apr_access->number_dimensions) {
                     case 1:
                         return 1;
                     case 2:
@@ -602,17 +602,19 @@ public:
         //  Finds the Particle Cell for which the point (x,y,z) belongs to its spatial domain and set the iterator to it
         //
 
-        //check in bounds
-        if(((uint16_t)(x)>(apr_access->org_dims[1]-1)) | ((uint16_t)(z)>(apr_access->org_dims[2]-1)) | ((uint16_t)(y)>(apr_access->org_dims[0]-1))){
+        //Then check from the highest level to lowest.
+        ParticleCell particle_cell;
+        particle_cell.y = floor(y); // Sometimes causes bad access. Change to floor?
+        particle_cell.x = floor(x);
+        particle_cell.z = floor(z);
+
+        // check in bounds
+        if((particle_cell.x>(apr_access->org_dims[1]-1)) | (particle_cell.y>(apr_access->org_dims[0]-1)) | (particle_cell.z>(apr_access->org_dims[2]-1))){
             //out of bounds
             return false;
         }
 
-        //Then check from the highest level to lowest.
-        ParticleCell particle_cell;
-        particle_cell.y = round(y); // Sometimes causes bad access. Change to floor?
-        particle_cell.x = round(x);
-        particle_cell.z = round(z);
+
         particle_cell.level = level_max();
 
         particle_cell.pc_offset =  apr_access->x_num[particle_cell.level] * particle_cell.z + particle_cell.x;

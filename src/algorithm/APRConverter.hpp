@@ -433,6 +433,8 @@ void APRConverter<ImageType>::init_apr(APR<ImageType>& aAPR,PixelData<T>& input_
     aAPR.apr_access.org_dims[1] = input_image.x_num;
     aAPR.apr_access.org_dims[2] = input_image.z_num;
 
+    aAPR.apr_access.number_dimensions = (input_image.y_num > 1) + (input_image.x_num > 1) + (input_image.z_num > 1);
+
     int max_dim = std::max(std::max(aAPR.apr_access.org_dims[1], aAPR.apr_access.org_dims[0]), aAPR.apr_access.org_dims[2]);
     //int min_dim = std::min(std::min(aAPR.apr_access.org_dims[1], aAPR.apr_access.org_dims[0]), aAPR.apr_access.org_dims[2]);
 

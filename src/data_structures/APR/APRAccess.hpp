@@ -109,6 +109,8 @@ public:
 
     uint64_t org_dims[3]={0,0,0};
 
+    uint8_t number_dimensions = 3;
+
     // TODO: SHould they be also saved as uint64 in HDF5? (currently int is used)
     std::vector<uint64_t> x_num;
     std::vector<uint64_t> y_num;
@@ -246,10 +248,7 @@ public:
     inline bool check_neighbours_flag(const uint16_t& x,const uint16_t& z,const uint16_t& level){
         return ((uint16_t)(x-1)>(x_num[level]-3)) | ((uint16_t)(z-1)>(z_num[level]-3));
     }
-
-    inline uint8_t number_dims() {
-        return ((org_dims[0] > 1) + (org_dims[1] > 1) + (org_dims[2] > 1));
-    }
+    
 
     inline uint8_t number_neighbours_in_direction(const uint8_t& level_delta){
         //
@@ -263,7 +262,7 @@ public:
 
             case _LEVEL_INCREASE:
 
-                switch (number_dims()) {
+                switch (number_dimensions) {
                     case 1:
                         return 1;
                     case 2:

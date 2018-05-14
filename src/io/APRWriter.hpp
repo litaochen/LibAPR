@@ -163,6 +163,7 @@ public:
         readData(AprTypes::ParticleCellType, f.objectId, apr.apr_access.particle_cell_type.data.data());
 
         apr.apr_access.rebuild_map(apr, *map_data);
+        apr.apr_access.number_dimensions = ((apr.apr_access.org_dims[0] > 1) + (apr.apr_access.org_dims[1] > 1) + (apr.apr_access.org_dims[2] > 1));
 
         // ------------ decompress if needed ---------------------
         if (compress_type > 0) {
