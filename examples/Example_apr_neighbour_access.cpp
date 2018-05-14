@@ -55,7 +55,7 @@ int main(int argc, char **argv) {
     APRIterator<uint16_t> neighbour_iterator(apr);
     APRIterator<uint16_t> apr_iterator(apr);
 
-    uint8_t ndirections = apr.apr_access.number_dims() * 2;
+    uint8_t ndirections = apr.apr_access.number_dimensions * 2;
 
     timer.start_timer("APR serial iterator neighbours loop");
 
