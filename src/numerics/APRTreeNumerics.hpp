@@ -102,7 +102,7 @@ public:
         APRIterator<T> apr_iterator(apr);
 
         uint64_t particle_number = 0;
-        uint64_t parent_number = 0;
+        //uint64_t parent_number = 0;
 
         for (particle_number = 0; particle_number < apr.total_number_particles(); ++particle_number) {
             //This step is required for all loops to set the iterator by the particle number
