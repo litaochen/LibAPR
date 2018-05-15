@@ -13,6 +13,13 @@
 #include <memory>
 
 
+struct FileSizeInfo {
+    float total_file_size=0;
+    float intensity_data=0;
+    float access_data=0;
+};
+
+
 struct AprType {hid_t hdf5type; const char * const typeName;};
 namespace AprTypes  {
 
@@ -174,7 +181,7 @@ public:
     }
 
     template<typename ImageType>
-    float write_apr(APR<ImageType>& apr, const std::string &save_loc, const std::string &file_name) {
+    FileSizeInfo write_apr(APR<ImageType>& apr, const std::string &save_loc, const std::string &file_name) {
         APRCompress<ImageType> apr_compressor;
         apr_compressor.set_compression_type(0);
         return write_apr(apr, save_loc, file_name, apr_compressor);
@@ -184,13 +191,14 @@ public:
      * Writes the APR to the particle cell structure sparse format, using the p_map for reconstruction
      */
     template<typename ImageType>
-    float write_apr(APR<ImageType> &apr, const std::string &save_loc, const std::string &file_name, APRCompress<ImageType> &apr_compressor, unsigned int blosc_comp_type = BLOSC_ZSTD, unsigned int blosc_comp_level = 2, unsigned int blosc_shuffle=1) {
+    FileSizeInfo write_apr(APR<ImageType> &apr, const std::string &save_loc, const std::string &file_name, APRCompress<ImageType> &apr_compressor, unsigned int blosc_comp_type = BLOSC_ZSTD, unsigned int blosc_comp_level = 2, unsigned int blosc_shuffle=1) {
         APRTimer write_timer;
         write_timer.verbose_flag = false;
 
         std::string hdf5_file_name = save_loc + file_name + "_apr.h5";
         AprFile f{hdf5_file_name, AprFile::Operation::WRITE};
-        if (!f.isOpened()) return 0;
+        FileSizeInfo fileSizeInfo1;
+        if (!f.isOpened()) return fileSizeInfo1;
 
         // ------------- write metadata -------------------------
         writeAttr(AprTypes::NumberOfXType, f.groupId, &apr.apr_access.org_dims[1]);
@@ -225,14 +233,7 @@ public:
         writeAttr(AprTypes::NoiseSdEstimateType, f.groupId, &apr.parameters.noise_sd_estimate);
         writeAttr(AprTypes::BackgroundIntensityEstimateType, f.groupId, &apr.parameters.background_intensity_estimate);
 
-        // ------------- write data ----------------------------
-        write_timer.start_timer("intensities");
-        if (compress_type_num > 0){
-            apr_compressor.compress(apr,apr.particles_intensities);
-        }
-        hid_t type = Hdf5Type<ImageType>::type();
-        writeData({type, AprTypes::ParticleIntensitiesType}, f.objectId, apr.particles_intensities.data, blosc_comp_type, blosc_comp_level, blosc_shuffle);
-        write_timer.stop_timer();
+
 
         write_timer.start_timer("access_data");
         MapStorageData map_data;
@@ -262,11 +263,32 @@ public:
             writeAttr(AprTypes::NumberOfLevelZType, i, f.groupId, &z_num);
         }
 
+
         // ------------- output the file size -------------------
         hsize_t file_size = f.getFileSize();
+        double sizeMB_access = file_size / 1e6;
+
+        FileSizeInfo fileSizeInfo;
+        fileSizeInfo.access_data = sizeMB_access;
+
+        // ------------- write data ----------------------------
+        write_timer.start_timer("intensities");
+        if (compress_type_num > 0){
+            apr_compressor.compress(apr,apr.particles_intensities);
+        }
+        hid_t type = Hdf5Type<ImageType>::type();
+        writeData({type, AprTypes::ParticleIntensitiesType}, f.objectId, apr.particles_intensities.data, blosc_comp_type, blosc_comp_level, blosc_shuffle);
+        write_timer.stop_timer();
+
+        // ------------- output the file size -------------------
+        file_size = f.getFileSize();
         double sizeMB = file_size / 1e6;
-        std::cout << "HDF5 Filesize: " << sizeMB << " MB\n" << "Writing Complete" << std::endl;
-        return sizeMB;
+
+        fileSizeInfo.total_file_size = sizeMB;
+        fileSizeInfo.intensity_data = fileSizeInfo.total_file_size - fileSizeInfo.access_data;
+
+        std::cout << "HDF5 Total Filesize: " << sizeMB << " MB\n" << "Writing Complete" << std::endl;
+        return fileSizeInfo;
     }
 
     template<typename ImageType,typename T>
