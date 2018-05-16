@@ -57,6 +57,9 @@ int main(int argc, char **argv) {
     apr_converter.par.SNR_min = options.SNR_min;
     apr_converter.par.normalized_input = options.normalize_input;
 
+    apr_converter.par.check_input = options.check_input;
+    apr_converter.par.swap_dimensions = options.swap_dimensions;
+
     //where things are
     apr_converter.par.input_image_name = options.input;
     apr_converter.par.input_dir = options.directory;
@@ -68,6 +71,7 @@ int main(int argc, char **argv) {
     apr_converter.computation_timer.verbose_flag = false;
     apr_converter.allocation_timer.verbose_flag = false;
     apr_converter.total_timer.verbose_flag = true;
+
 
     //Gets the APR
     if(apr_converter.get_apr(apr)){
@@ -267,6 +271,14 @@ cmdLineOptions read_command_line_options(int argc, char **argv){
     if(command_option_exists(argv, argv + argc, "-normalize_input"))
     {
         result.normalize_input = true;
+    }
+
+    if(command_option_exists(argv, argv + argc, "-check_input")) {
+        result.check_input = true;
+    }
+
+    if(command_option_exists(argv, argv + argc, "-swap_dimensions")) {
+        result.swap_dimensions = true;
     }
 
     if(command_option_exists(argv, argv + argc, "-store_delta"))

@@ -69,7 +69,10 @@ private:
     template<typename T>
     bool get_apr_method_from_file(APR<ImageType> &aAPR, const TiffUtils::TiffInfo &aTiffFile);
 
-    public:
+    template<typename T>
+    bool check_input_dimensions(PixelData<T> &input_image);
+
+public:
     void get_gradient(PixelData<ImageType> &image_temp, PixelData<ImageType> &grad_temp, PixelData<float> &local_scale_temp, PixelData<float> &local_scale_temp2, float bspline_offset, const APRParameters &par);
     void get_local_intensity_scale(PixelData<float> &local_scale_temp, PixelData<float> &local_scale_temp2, const APRParameters &par);
     void get_local_particle_cell_set(PixelData<ImageType> &grad_temp, PixelData<float> &local_scale_temp, PixelData<float> &local_scale_temp2);
@@ -150,6 +153,13 @@ bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>&
     apr = &aAPR; // in case it was called directly
 
     total_timer.start_timer("Total_pipeline_excluding_IO");
+
+    if(par.check_input) {
+        if(!check_input_dimensions(input_image)) {
+            std::cout << "Input dimension check failed. Make sure the input image is filled in order x -> y -> z, or try with the option -swap_dimension" << std::endl;
+            return false;
+        }
+    }
 
     init_apr(aAPR, input_image);
 
@@ -755,6 +765,69 @@ void APRConverter<ImageType>::auto_parameters(const PixelData<T>& input_img){
         std::cout << "lambda: " << par.lambda << std::endl;
     }
 }
+
+
+template<typename ImageType> template<typename T>
+bool APRConverter<ImageType>::check_input_dimensions(PixelData<T> &input_image) {
+    bool x_present = input_image.x_num>1;
+    bool y_present = input_image.y_num>1;
+    bool z_present = input_image.z_num>1;
+
+    uint8_t number_dims = x_present + y_present + z_present;
+
+    if(number_dims == 3) {
+        return true;
+    }
+
+    if(number_dims == 2) {
+
+        if(y_present && x_present) {
+            return true;
+        }
+
+        // only one dimension is missing (and it's not z)
+        if(par.swap_dimensions) {
+            if(x_present) {
+                // if y is missing, swap x<->y and then x<->z
+                std::swap(input_image.x_num, input_image.y_num);
+                std::swap(input_image.x_num, input_image.z_num);
+
+                return true;
+            }
+
+            // if x is missing
+            std::swap(input_image.x_num, input_image.z_num);
+            return true;
+        }
+        // dimensions not ok and not swapping
+        return false;
+
+    }
+
+    if(number_dims == 1) {
+        if(y_present) {
+            return true;
+        }
+
+        if(par.swap_dimensions) {
+
+            if(x_present) {
+                std::swap(input_image.x_num, input_image.y_num);
+                return true;
+            }
+
+            // if z is present
+            std::swap(input_image.y_num, input_image.z_num);
+            return true;
+        }
+
+        //dimensions not ok and not swapping
+        return false;
+    }
+
+    return false;
+}
+
 
 
 #endif //PARTPLAY_APR_CONVERTER_HPP

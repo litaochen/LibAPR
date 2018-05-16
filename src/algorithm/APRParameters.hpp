@@ -35,6 +35,9 @@ public:
 
     bool normalized_input = false;
 
+    bool check_input = false;
+    bool swap_dimensions = false;
+
     std::string name;
     std::string output_dir;
     std::string input_image_name;
