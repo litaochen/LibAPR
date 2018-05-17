@@ -105,7 +105,7 @@ public:
                 predict_particles_by_level(apr, level, predict_input, predict_output, predict_directions, num_blocks,
                                            0);
             }
-        } else if (compress_type == 3){
+        } else if (compress_type == 4){
             predict_input.map_inplace(apr,[this](const float a) { return variance_stabilitzation<float>(a); });
 
 
@@ -116,9 +116,8 @@ public:
                 predict_output.copy_parts(apr,predict_input,level);
             }
 
-        } else if (compress_type == 4){
+        } else if (compress_type == 3){
             predict_input.map_inplace(apr,[this](const float a) { return variance_stabilitzation<float>(a); });
-
 
             //predict_particles_by_level(apr, apr.level_max(), predict_input, predict_output, predict_directions,
               //                         num_blocks, 0,false);
@@ -183,7 +182,7 @@ public:
                 predict_particles_by_level(apr, level, predict_input, predict_output, predict_directions, num_blocks,
                                            1,false);
             }
-        } else if (compress_type == 3){
+        } else if (compress_type == 4){
 
 
             //decode predict
@@ -199,7 +198,7 @@ public:
             predict_output.map_inplace(apr,[this](const float a) { return inverse_variance_stabilitzation<float>(a); });
 
 
-        } else if (compress_type ==4){
+        } else if (compress_type ==3){
 
             for (unsigned int level = apr.level_min(); level <= apr.level_max(); ++level) {
                 //predict_output.copy_parts(apr,predict_input,level);

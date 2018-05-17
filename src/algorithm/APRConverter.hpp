@@ -48,10 +48,14 @@ public:
         }
     };
 
-private:
-    //get apr without setting parameters, and with an already loaded image.
     template<typename T>
     bool get_apr_method(APR<ImageType> &aAPR, MeshData<T> &input_image);
+
+    template<typename T>
+    bool get_apr_method_from_file(APR<ImageType> &aAPR, const TiffUtils::TiffInfo &aTiffFile);
+
+private:
+    //get apr without setting parameters, and with an already loaded image.
 
     //pointer to the APR structure so member functions can have access if they need
     const APR<ImageType> *apr;
@@ -61,9 +65,6 @@ private:
 
     template<typename T>
     void auto_parameters(const MeshData<T> &input_img);
-
-    template<typename T>
-    bool get_apr_method_from_file(APR<ImageType> &aAPR, const TiffUtils::TiffInfo &aTiffFile);
 
     void get_gradient(MeshData<ImageType> &image_temp, MeshData<ImageType> &grad_temp, MeshData<float> &local_scale_temp, MeshData<float> &local_scale_temp2, float bspline_offset);
     void get_local_intensity_scale(MeshData<float> &local_scale_temp, MeshData<float> &local_scale_temp2);
