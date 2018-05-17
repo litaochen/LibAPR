@@ -112,7 +112,7 @@ int main(int argc, char **argv) {
         unsigned int blosc_shuffle = 1;
 
         //write the APR to hdf5 file
-        float apr_file_size = apr.write_apr(save_loc,file_name,blosc_comp_type,blosc_comp_level,blosc_shuffle);
+        FileSizeInfo apr_file_size = apr.write_apr(save_loc,file_name,blosc_comp_type,blosc_comp_level,blosc_shuffle);
 
         timer.stop_timer();
 
@@ -120,7 +120,7 @@ int main(int argc, char **argv) {
 
         std::cout << std::endl;
         std::cout << "Computational Ratio (Pixels/Particles): " << computational_ratio << std::endl;
-        std::cout << "Lossy Compression Ratio: " << original_pixel_image_size/apr_file_size << std::endl;
+        std::cout << "Lossy Compression Ratio: " << original_pixel_image_size/apr_file_size.total_file_size << std::endl;
         std::cout << std::endl;
 
         if(options.store_delta){
@@ -153,7 +153,7 @@ int main(int argc, char **argv) {
             std::cout << "Size of the image diff: " << file_size << " MB" << std::endl;
 
             std::cout << std::endl;
-            std::cout << "Lossless Compression Ratio (APR + diff): " << original_pixel_image_size/(file_size + apr_file_size) << std::endl;
+            std::cout << "Lossless Compression Ratio (APR + diff): " << original_pixel_image_size/(file_size + apr_file_size.total_file_size) << std::endl;
             std::cout << std::endl;
 
             float file_size_org = aprWriter.write_mesh_to_hdf5(inputImage,save_loc,file_name,blosc_comp_type,blosc_comp_level,blosc_shuffle);
