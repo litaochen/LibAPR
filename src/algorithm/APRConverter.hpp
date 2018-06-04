@@ -768,7 +768,9 @@ void APRConverter<ImageType>::auto_parameters(const PixelData<T>& input_img){
     }
 }
 
-
+/**
+ * Checks if the memory dimension (y) is filled
+ */
 template<typename ImageType> template<typename T>
 bool APRConverter<ImageType>::check_input_dimensions(PixelData<T> &input_image) {
     bool x_present = input_image.x_num>1;
@@ -777,10 +779,24 @@ bool APRConverter<ImageType>::check_input_dimensions(PixelData<T> &input_image) 
 
     uint8_t number_dims = x_present + y_present + z_present;
 
-    if(number_dims == 3) {
+    if(number_dims == 0) { return false; }
+    if(number_dims == 3) { return true; }
+
+    // number_dims equals 1 or 2
+    if(y_present) {
+        return true;
+    } else if(par.swap_dimensions){
+        if(x_present) {
+            std::swap(input_image.x_num, input_image.y_num);
+        } else {
+            std::swap(input_image.z_num, input_image.y_num);
+        }
         return true;
     }
+    //else
+    return false;
 
+    /*
     if(number_dims == 2) {
 
         if(y_present && x_present) {
@@ -826,8 +842,7 @@ bool APRConverter<ImageType>::check_input_dimensions(PixelData<T> &input_image) 
         //dimensions not ok and not swapping
         return false;
     }
-
-    return false;
+     */
 }
 
 
