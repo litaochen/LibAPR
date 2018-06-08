@@ -37,10 +37,11 @@ public:
         int max_dim = std::max(std::max(apr.apr_access.org_dims[1], apr.apr_access.org_dims[0]), apr.apr_access.org_dims[2]);
 
         int max_level = ceil(std::log2(max_dim));
-        
+
         for (uint64_t level = apr_iterator.level_min(); level <= apr_iterator.level_max(); ++level) {
 
             const float step_size = pow(2, max_level - level);
+
 
 #ifdef HAVE_OPENMP
 	#pragma omp parallel for schedule(static) private(particle_number) firstprivate(apr_iterator)
@@ -295,7 +296,7 @@ public:
         const int64_t x_num = input.x_num;
         const int64_t y_num = input.y_num;
 
-        std::vector<T> temp_vec;
+        std::vector<float> temp_vec;
         temp_vec.resize(y_num,0);
 
         std::vector<T> offset_vec;
@@ -419,7 +420,7 @@ public:
 
         unsigned int offset_max = offset_max_in;
 
-        std::vector<T> temp_vec;
+        std::vector<float> temp_vec;
         temp_vec.resize(y_num*(2*offset_max + 2),0);
 
         int64_t i,k;
@@ -542,7 +543,7 @@ public:
         const float scale = scale_in;
         //const unsigned int d_max = this->depth_max();
 
-        std::vector<T> temp_vec;
+        std::vector<float> temp_vec;
         temp_vec.resize(y_num*(2*offset_max + 2),0);
 
 #ifdef HAVE_OPENMP

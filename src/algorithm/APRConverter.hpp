@@ -53,6 +53,9 @@ public:
     };
 
     template<typename T>
+    bool get_variance(PixelData<T> &input_image, PixelData<float> &variance);
+
+    template<typename T>
     bool get_apr_method(APR<ImageType> &aAPR, PixelData<T> &input_image);
 
     template<typename T>
@@ -158,7 +161,7 @@ bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>&
 
     if(par.check_input) {
         if(!check_input_dimensions(input_image)) {
-            std::cout << "Input dimension check failed. Make sure the input image is filled in order x -> y -> z, or try with the option -swap_dimension" << std::endl;
+            std::cout << "Input dimension check failed. Make sure the input image is filled in order x -> y -> z, or try using the option -swap_dimension" << std::endl;
             return false;
         }
     }
@@ -213,6 +216,8 @@ bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>&
     get_local_intensity_scale(local_scale_temp, local_scale_temp2, par);
     method_timer.stop_timer();
     method_timer.verbose_flag = false;
+
+
 #else
     method_timer.start_timer("compute_gradient_magnitude_using_bsplines and local instensity scale CUDA");
     getFullPipeline(image_temp, grad_temp, local_scale_temp, local_scale_temp2,bspline_offset, par);
@@ -845,6 +850,115 @@ bool APRConverter<ImageType>::check_input_dimensions(PixelData<T> &input_image) 
      */
 }
 
+template<typename ImageType> template<typename T>
+bool APRConverter<ImageType>::get_variance(PixelData<T>& input_image, PixelData<float> &variance) {
 
+    total_timer.start_timer("Total_pipeline_excluding_IO");
+
+    if (par.check_input) {
+        if (!check_input_dimensions(input_image)) {
+            std::cout
+                    << "Input dimension check failed. Make sure the input image is filled in order x -> y -> z, or try using the option -swap_dimension"
+                    << std::endl;
+            return false;
+        }
+    }
+
+    ////////////////////////////////////////
+    /// Memory allocation of variables
+    ////////////////////////////////////////
+
+    //assuming uint16, the total memory cost shoudl be approximately (1 + 1 + 1/8 + 2/8 + 2/8) = 2 5/8 original image size in u16bit
+    //storage of the particle cell tree for computing the pulling scheme
+    allocation_timer.start_timer("init and copy image");
+
+    PixelData<ImageType> image_temp(input_image,
+                                    false); // global image variable useful for passing between methods, or re-using memory (should be the only full sized copy of the image)
+
+    PixelData<float> local_scale_temp2;
+    local_scale_temp2.initDownsampled(input_image.y_num, input_image.x_num, input_image.z_num);
+    allocation_timer.stop_timer();
+
+    variance.initDownsampled(input_image.y_num, input_image.x_num, input_image.z_num);
+
+    /////////////////////////////////
+    /// Pipeline
+    ////////////////////////
+
+    computation_timer.start_timer("Calculations");
+
+    fine_grained_timer.start_timer("offset image");
+    //offset image by factor (this is required if there are zero areas in the background with uint16_t and uint8_t images, as the Bspline co-efficients otherwise may be negative!)
+    // Warning both of these could result in over-flow (if your image is non zero, with a 'buffer' and has intensities up to uint16_t maximum value then set image_type = "", i.e. uncomment the following line)
+    float bspline_offset = 0;
+    if (std::is_same<uint16_t, ImageType>::value) {
+        bspline_offset = 100;
+        image_temp.copyFromMeshWithUnaryOp(input_image, [=](const auto &a) { return (a + bspline_offset); });
+    } else if (std::is_same<uint8_t, ImageType>::value) {
+        bspline_offset = 5;
+        image_temp.copyFromMeshWithUnaryOp(input_image, [=](const auto &a) { return (a + bspline_offset); });
+    } else {
+        image_temp.copyFromMesh(input_image);
+    }
+
+    fine_grained_timer.stop_timer();
+
+
+    fine_grained_timer.verbose_flag = true;
+
+    fine_grained_timer.start_timer("threshold");
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for
+#endif
+    for (size_t i = 0; i < image_temp.mesh.size(); ++i) {
+        if (image_temp.mesh[i] <= (par.Ip_th + bspline_offset)) { image_temp.mesh[i] = par.Ip_th + bspline_offset; }
+    }
+    fine_grained_timer.stop_timer();
+
+
+    fine_grained_timer.start_timer("smooth_bspline");
+    if(par.lambda > 0) {
+        get_smooth_bspline_3D(image_temp, par.lambda);
+    }
+    fine_grained_timer.stop_timer();
+
+
+    variance.copyFromMesh(image_temp);//copyFromMeshWithUnaryOp(image_temp, [=](const auto &a) { return (a); });
+
+    downsample(image_temp, variance,
+               [](const float &x, const float &y) -> float { return x + y; },
+               [](const float &x) -> float { return x / 8.0; });
+
+
+    if(par.lambda > 0){
+        if(image_temp.y_num > 1) {
+            fine_grained_timer.start_timer("calc_inv_bspline_y");
+            calc_inv_bspline_y(variance);
+            fine_grained_timer.stop_timer();
+        }
+        if(image_temp.x_num > 1) {
+            fine_grained_timer.start_timer("calc_inv_bspline_x");
+            calc_inv_bspline_x(variance);
+            fine_grained_timer.stop_timer();
+        }
+        if(image_temp.z_num > 1) {
+            fine_grained_timer.start_timer("calc_inv_bspline_z");
+            calc_inv_bspline_z(variance);
+            fine_grained_timer.stop_timer();
+        }
+    }
+
+
+    method_timer.stop_timer();
+
+    method_timer.start_timer("compute_local_intensity_scale");
+    get_local_intensity_scale(variance, local_scale_temp2, par);
+    method_timer.stop_timer();
+    method_timer.verbose_flag = false;
+
+    return true;
+
+}
 
 #endif //PARTPLAY_APR_CONVERTER_HPP
