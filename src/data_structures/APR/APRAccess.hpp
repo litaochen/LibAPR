@@ -368,6 +368,9 @@ public:
         //  Initialize the new structure;
         //
 
+        uint8_t min_type = apr.parameters.neighborhood_optimization ? 1 : 2;
+
+
         APRTimer apr_timer;
         apr_timer.verbose_flag = false;
 
@@ -390,7 +393,8 @@ public:
 
                     for (size_t y = 0; y < y_num_ds; ++y) {
                         uint8_t status = p_map[i - 1][offset_part_map_ds + y];
-                        if (status == SEED_TYPE) {
+
+                        if (status > 0 && status <= min_type) {
                             p_map[i][offset_part_map + 2 * y] = seed_us;
                             p_map[i][offset_part_map + 2 * y + 1] = seed_us;
                         }
@@ -423,7 +427,7 @@ public:
 
                     for (size_t y = 0; y < y_num_; ++y) {
                         uint8_t status = p_map[i][offset_part_map + y];
-                        if ((status > 1) && (status < 5)) {
+                        if ((status > min_type) && (status < 5)) {
                             current = 1;
                             if (previous == 0) {
                                 y_begin.data[i][offset_pc_data].push_back({y,gap});
@@ -475,7 +479,7 @@ public:
 
                 for (size_t y_ = 0; y_ < y_num_; ++y_) {
                     uint8_t status = p_map[i][offset_part_map + y_];
-                    if (status == SEED_TYPE) {
+                    if (status > 0 && status <= min_type) {
                         current = 1;
                         if (previous == 0) {
                             y_begin.data[i+1][offset_pc_data1].push_back({2*y_,gap});

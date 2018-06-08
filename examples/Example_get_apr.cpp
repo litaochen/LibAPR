@@ -56,6 +56,7 @@ int main(int argc, char **argv) {
 
     apr_converter.par.check_input = options.check_input;
     apr_converter.par.swap_dimensions = options.swap_dimensions;
+    apr_converter.par.neighborhood_optimization = options.neighborhood_optimization;
 
     //where things are
     apr_converter.par.input_image_name = options.input;
@@ -119,7 +120,7 @@ int main(int argc, char **argv) {
 
         std::cout << std::endl;
         std::cout << "Computational Ratio (Pixels/Particles): " << computational_ratio << std::endl;
-        std::cout << "Lossy Compression Ratio: " << original_pixel_image_size/apr_file_size.total_file_size << std::endl;
+        std::cout << "Lossy Compression Ratio: " << original_pixel_image_size/apr_file_size << std::endl;
         std::cout << std::endl;
 
 
@@ -238,9 +239,10 @@ cmdLineOptions read_command_line_options(int argc, char **argv){
         result.swap_dimensions = true;
     }
 
-    if(command_option_exists(argv, argv + argc, "-store_delta"))
+    if(command_option_exists(argv, argv + argc, "-neighborhood_optimization_off"))
     {
-        result.store_delta = true;
+        result.neighborhood_optimization = false;
+
     }
 
     return result;

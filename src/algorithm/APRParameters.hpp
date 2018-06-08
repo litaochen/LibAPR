@@ -37,6 +37,7 @@ public:
 
     bool check_input = false;
     bool swap_dimensions = false;
+    bool neighborhood_optimization = true;
 
     std::string name;
     std::string output_dir;
