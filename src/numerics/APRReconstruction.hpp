@@ -638,7 +638,7 @@ public:
 
 
     template<typename U,typename V,typename S>
-    void interp_parts_smooth(APR<S>& apr,PixelData<U>& out_image,ExtraParticleData<V>& interp_data,std::vector<float> scale_d = {2,2,2}){
+    void interp_parts_smooth(APR<S>& apr,PixelData<U>& out_image,ExtraParticleData<V>& interp_data,std::vector<float> scale_d = {2,2,2}) {
         //
         //  Performs a smooth interpolation, based on the depth (level l) in each direction.
         //
@@ -651,26 +651,27 @@ public:
 
         unsigned int offset_max = 20;
 
-        interp_img(apr,pc_image,interp_data);
+        interp_img(apr, pc_image, interp_data);
 
         interp_level(apr, k_img);
 
         timer.start_timer("sat");
         //demo
-        calc_sat_adaptive_y(pc_image,k_img,scale_d[0],offset_max,apr.level_max());
-
+        if (apr.orginal_dimensions(0) > 1) {
+            calc_sat_adaptive_y(pc_image, k_img, scale_d[0], offset_max, apr.level_max());
+        }
         timer.stop_timer();
 
         timer.start_timer("sat");
-
-        calc_sat_adaptive_x(pc_image,k_img,scale_d[1],offset_max,apr.level_max());
-
+        if(apr.orginal_dimensions(1) > 1) {
+            calc_sat_adaptive_x(pc_image, k_img, scale_d[1], offset_max, apr.level_max());
+        }
         timer.stop_timer();
 
         timer.start_timer("sat");
-
-        calc_sat_adaptive_z(pc_image,k_img,scale_d[2],offset_max,apr.level_max());
-
+        if(apr.orginal_dimensions(2) > 1) {
+            calc_sat_adaptive_z(pc_image, k_img, scale_d[2], offset_max, apr.level_max());
+        }
         timer.stop_timer();
 
         pc_image.swap(out_image);
