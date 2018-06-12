@@ -1,6 +1,17 @@
 macro(buildTarget TARGET)
     add_executable(${TARGET} ${TARGET}.cpp)
-    target_link_libraries(${TARGET} ${HDF5_LIBRARIES} ${TIFF_LIBRARIES} ${APR_BUILD_LIBRARY})
+
+    if(BLOSC_FOUND)
+        target_link_libraries(${TARGET} PRIVATE ${BLOSC_LIBRARIES} ${ZLIB_LIBRARIES} ${HDF5_LIBRARIES} ${TIFF_LIBRARIES} ${APR_BUILD_LIBRARY})
+    else()
+        add_dependencies(${TARGET} blosc_static)
+        target_link_libraries(${TARGET} PRIVATE ${ZLIB_LIBRARIES} ${BLOSC_LIBRARIES} ${ZLIB_LIBRARIES} ${HDF5_LIBRARIES} ${TIFF_LIBRARIES} ${APR_BUILD_LIBRARY})
+        if (APPLE)
+            target_link_libraries(${TARGET} PRIVATE -Wl,-force_load,$<TARGET_FILE:blosc_static>)
+        else()
+            target_link_libraries(${TARGET} PRIVATE -Wl,--whole-archive $<TARGET_FILE:blosc_static> -Wl,--no-whole-archive)
+        endif()
+    endif()
 endmacro(buildTarget)
 
 buildTarget(Example_get_apr)
