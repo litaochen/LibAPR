@@ -76,7 +76,8 @@ void ComputeGradient::mask_gradient(PixelData<T>& grad_ds,PixelData<S>& temp_ds,
     //       Not removing it for now since intentions are not known to me.
     std::string file_name = par.input_dir + par.mask_file;
 
-    TiffUtils::getMesh(file_name, temp_full);
+    // TODO: Check if wrappers are working properly if uncommented
+    //TiffUtils::getMesh(file_name, temp_full);
 
     downsample(temp_ds, temp_full,
                [](const T &x, const T &y) -> T { return std::max(x, y); },

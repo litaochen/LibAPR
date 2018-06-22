@@ -71,6 +71,7 @@ template<typename ImageType>
 inline bool APRConverter<ImageType>::get_apr(APR<ImageType> &aAPR) {
     apr = &aAPR;
 
+#ifdef HAVE_LIBTIFF
     TiffUtils::TiffInfo inputTiff(par.input_dir + par.input_image_name);
     if (!inputTiff.isFileOpened()) return false;
 
@@ -85,6 +86,10 @@ inline bool APRConverter<ImageType>::get_apr(APR<ImageType> &aAPR) {
         std::cerr << "Wrong file type" << std::endl;
         return false;
     }
+#else
+    std::cerr << "LibTIFF not in use - cannot open file!" << std::endl;
+    return false;
+#endif
 };
 
 template <typename T>
@@ -209,7 +214,9 @@ inline bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelD
     method_timer.stop_timer();
 
     if(par.output_steps){
+#ifdef HAVE_LIBTIFF
         TiffUtils::saveMeshAsTiff(par.output_dir + "gradient_step.tif", grad_temp);
+#endif
     }
 
     method_timer.start_timer("compute_local_intensity_scale");
@@ -218,7 +225,9 @@ inline bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelD
     //method_timer.verbose_flag = false;
 
     if(par.output_steps){
+#ifdef HAVE_LIBTIFF
         TiffUtils::saveMeshAsTiff(par.output_dir + "local_intensity_scale_step.tif", local_scale_temp);
+#endif
     }
 #else
     method_timer.start_timer("compute_gradient_magnitude_using_bsplines and local instensity scale CUDA");
@@ -288,7 +297,9 @@ inline void APRConverter<ImageType>::get_local_particle_cell_set(PixelData<Image
     iLocalParticleSet.compute_level_for_array(local_scale_temp,level_factor,par.rel_error);
 
     if(par.output_steps){
+#ifdef HAVE_LIBTIFF
         TiffUtils::saveMeshAsTiff(par.output_dir + "local_particle_set_level_step.tif", local_scale_temp);
+#endif
     }
 
 
