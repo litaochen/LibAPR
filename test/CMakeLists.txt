@@ -9,3 +9,7 @@ buildTarget(testTiff TiffTest.cpp)
 buildTarget(testAPR APRTest.cpp)
 buildTarget(testComputeGradient ComputeGradientTest.cpp)
 buildTarget(testLocalIntensityScale LocalIntensityScaleTest.cpp)
+
+# Naive python test
+# Working directory is changed to build since python module is availabe there
+add_test(NAME pythondWrapperTest WORKING_DIRECTORY ${PROJECT_BINARY_DIR} COMMAND python ${CMAKE_CURRENT_LIST_DIR}/pythonTest.py)

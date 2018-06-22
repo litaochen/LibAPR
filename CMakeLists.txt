@@ -17,6 +17,7 @@ option(APR_TESTS "Build APR tests" OFF)
 option(APR_PREFER_EXTERNAL_GTEST "When found, use the installed GTEST libs instead of included sources" OFF)
 option(APR_PREFER_EXTERNAL_BLOSC "When found, use the installed BLOSC libs instead of included sources" OFF)
 option(APR_BUILD_JAVA_WRAPPERS "Build APR JAVA wrappers" OFF)
+option(APR_BUILD_PYTHON_WRAPPERS "Build APR PYTHON wrappers (experimental - under development)" OFF)
 option(APR_USE_CUDA "should APR use CUDA? (experimental - under development)" OFF)
 option(APR_USE_OPENMP "should APR use OpenMP?" ON)
 option(APR_BENCHMARK "add benchmarking code" OFF)
@@ -306,3 +307,24 @@ if(APR_BUILD_JAVA_WRAPPERS)
     swig_add_library(apr LANGUAGE java SOURCES libapr.i ${SOURCE_FILES})
     swig_link_libraries(apr ${HDF5_LIBRARIES} ${TIFF_LIBRARIES} ${BLOSC_LIBRARIES} ${ZLIB_LIBRARIES})
 endif(APR_BUILD_JAVA_WRAPPERS)
+
+
+###############################################################################
+# PYTHON wrappers
+###############################################################################
+if(APR_BUILD_PYTHON_WRAPPERS)
+    message(STATUS "APR: Building PYTHON wrappers")
+    set(PYBIND11_PYTHON_VERSION 2.7)
+
+    add_subdirectory("external/pybind11")
+
+    set(APR_PYTHON_MODULE_NAME pyApr)
+    add_definitions(-DAPR_PYTHON_MODULE_NAME=${APR_PYTHON_MODULE_NAME})
+    add_library(${APR_PYTHON_MODULE_NAME} MODULE src/wrapper/pythonBind.cpp $<TARGET_OBJECTS:aprObjLib>)
+    target_include_directories(${APR_PYTHON_MODULE_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(${APR_PYTHON_MODULE_NAME} PRIVATE pybind11::module ${HDF5_LIBRARIES} ${TIFF_LIBRARIES} ${BLOSC_LIBRARIES} ${ZLIB_LIBRARIES})
+    set_target_properties(${APR_PYTHON_MODULE_NAME} PROPERTIES OUTPUT_NAME ${APR_PYTHON_MODULE_NAME})
+    set_target_properties(${APR_PYTHON_MODULE_NAME} PROPERTIES PREFIX "${PYTHON_MODULE_PREFIX}"
+                                                               SUFFIX "${PYTHON_MODULE_EXTENSION}")
+
+endif(APR_BUILD_PYTHON_WRAPPERS)
