@@ -10,9 +10,11 @@
 #ifndef PARTPLAY_COMPRESSAPR_HPP
 #define PARTPLAY_COMPRESSAPR_HPP
 
+#include "data_structures/APR/APR.hpp"
+#include "data_structures/APR/ExtraParticleData.hpp"
+#include "misc/APRTimer.hpp"
 #include <cmath>
-#include "../data_structures/APR/APR.hpp"
-#include "../data_structures/APR/ExtraParticleData.hpp"
+#include <vector>
 
 template<typename ImageType>
 class APRCompress {
@@ -112,8 +114,6 @@ public:
         APRTimer timer;
         timer.verbose_flag = true;
         timer.start_timer("total decompress");
-
-
 
         if(this->background==1) {
             this->background = apr.parameters.background_intensity_estimate - 2 * apr.parameters.noise_sd_estimate;

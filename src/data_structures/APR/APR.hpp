@@ -6,23 +6,18 @@
 #define PARTPLAY_APR_HPP
 
 
-#include "../../misc/APRTimer.hpp"
-#include "../../algorithm/APRParameters.hpp"
-#include "../../numerics/APRCompress.hpp"
-#include "../../numerics/APRReconstruction.hpp"
-#include "../../algorithm/APRConverter.hpp"
+#include "algorithm/APRParameters.hpp"
+#include "numerics/APRCompress.hpp"
+#include "numerics/APRReconstruction.hpp"
+#include "algorithm/APRConverter.hpp"
+#include "APRIterator.hpp"
 
-#include "../../io/APRWriter.hpp"
+#include "io/APRWriter.hpp"
 #include "APRAccess.hpp"
 #include "ExtraParticleData.hpp"
 
 template<typename ImageType>
 class APR {
-
-    template<typename> friend class APRConverter;
-    template<typename> friend class APRIterator;
-    friend class APRWriter;
-    friend class PullingScheme;
 
     APRWriter apr_writer;
     APRReconstruction apr_recon;
