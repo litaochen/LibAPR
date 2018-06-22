@@ -83,8 +83,8 @@ public:
             //variance stabilization and prediction step.
             std::cout << "Variance Stabalization followed by (x,y,z) prediction" << std::endl;
 
-            ExtraParticleData<float> predict_input(apr);
-            ExtraParticleData<float> predict_output(apr);
+            ExtraParticleData<float> predict_input(apr.total_number_particles());
+            ExtraParticleData<float> predict_output(apr.total_number_particles());
 
             predict_input.copy_parts(apr,apr.particles_intensities);
             timer.stop_timer();
@@ -135,8 +135,8 @@ public:
 
         } else if (compress_type ==2){
 
-           ExtraParticleData<float> predict_input(apr);
-           ExtraParticleData<float> predict_output(apr);
+           ExtraParticleData<float> predict_input(apr.total_number_particles());
+           ExtraParticleData<float> predict_output(apr.total_number_particles());
            //turn symbols back to floats.
            symbols.map(apr,predict_input,[this](const ImageType a){return inverse_calculate_symbols<float,ImageType>(a);});
 
