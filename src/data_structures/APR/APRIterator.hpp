@@ -277,14 +277,22 @@ public:
         //
         //  Used for finding the starting particle on a given level
         //
-        return apr_access->global_index_by_level_begin[level_];
+        if(level_ <= apr_access->level_max) {
+            return apr_access->global_index_by_level_begin[level_];
+        } else {
+            return 1;
+        }
     }
 
     inline uint64_t particles_level_end(const uint16_t& level_){
         //
         //  Find the last particle on a given level
         //
-        return (apr_access->global_index_by_level_end[level_]+1l);
+        if(level_ <= apr_access->level_max) {
+            return (apr_access->global_index_by_level_end[level_] + 1l);
+        } else {
+            return 0;
+        }
     }
 
     inline uint64_t particles_z_begin(const uint16_t& level_,const uint64_t& z_){

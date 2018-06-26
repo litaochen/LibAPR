@@ -39,6 +39,8 @@ public:
     bool swap_dimensions = false;
     bool neighborhood_optimization = true;
 
+    bool constant_intensity_scale = false;
+
     std::string name;
     std::string output_dir;
     std::string input_image_name;

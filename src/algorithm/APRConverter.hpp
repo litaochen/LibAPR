@@ -382,55 +382,93 @@ void APRConverter<ImageType>::get_local_intensity_scale(PixelData<float> &local_
     //
     //  Output: down-sampled Local Intensity Scale (h) (Due to the Equivalence Optimization we only need down-sampled values)
     //
-
-    fine_grained_timer.start_timer("copy_intensities_from_bsplines");
-    //copy across the intensities
-    local_scale_temp2.copyFromMesh(local_scale_temp);
-    fine_grained_timer.stop_timer();
-
-    float var_rescale;
-    std::vector<int> var_win;
-    get_window(var_rescale,var_win,par);
-    size_t win_y = var_win[0];
-    size_t win_x = var_win[1];
-    size_t win_z = var_win[2];
-    size_t win_y2 = var_win[3];
-    size_t win_x2 = var_win[4];
-    size_t win_z2 = var_win[5];
-
-
-    if(local_scale_temp.y_num > 1) {
-        fine_grained_timer.start_timer("calc_sat_mean_y");
-        calc_sat_mean_y(local_scale_temp, win_y);
+    if (!par.constant_intensity_scale) {
+        fine_grained_timer.start_timer("copy_intensities_from_bsplines");
+        //copy across the intensities
+        local_scale_temp2.copyFromMesh(local_scale_temp);
         fine_grained_timer.stop_timer();
-    }
-    if(local_scale_temp.x_num > 1) {
-        fine_grained_timer.start_timer("calc_sat_mean_x");
-        calc_sat_mean_x(local_scale_temp, win_x);
-        fine_grained_timer.stop_timer();
-    }
-    if(local_scale_temp.z_num > 1) {
-        fine_grained_timer.start_timer("calc_sat_mean_z");
-        calc_sat_mean_z(local_scale_temp, win_z);
-        fine_grained_timer.stop_timer();
-    }
 
-    std::cout << "CPU WINDOWS: " << win_y << " " << win_x << " " << win_z << " " << win_y2 << " " << win_x2 << " " << win_z2 << std::endl;
-    fine_grained_timer.start_timer("second_pass_and_rescale");
-    //calculate abs and subtract from original
-    calc_abs_diff(local_scale_temp2,local_scale_temp);
-    //Second spatial average
-    if(local_scale_temp.y_num > 1) {
-        calc_sat_mean_y(local_scale_temp, win_y2);
+        float var_rescale;
+        std::vector<int> var_win;
+        get_window(var_rescale, var_win, par);
+        size_t win_y = var_win[0];
+        size_t win_x = var_win[1];
+        size_t win_z = var_win[2];
+        size_t win_y2 = var_win[3];
+        size_t win_x2 = var_win[4];
+        size_t win_z2 = var_win[5];
+
+
+        if (local_scale_temp.y_num > 1) {
+            fine_grained_timer.start_timer("calc_sat_mean_y");
+            calc_sat_mean_y(local_scale_temp, win_y);
+            fine_grained_timer.stop_timer();
+        }
+        if (local_scale_temp.x_num > 1) {
+            fine_grained_timer.start_timer("calc_sat_mean_x");
+            calc_sat_mean_x(local_scale_temp, win_x);
+            fine_grained_timer.stop_timer();
+        }
+        if (local_scale_temp.z_num > 1) {
+            fine_grained_timer.start_timer("calc_sat_mean_z");
+            calc_sat_mean_z(local_scale_temp, win_z);
+            fine_grained_timer.stop_timer();
+        }
+
+        std::cout << "CPU WINDOWS: " << win_y << " " << win_x << " " << win_z << " " << win_y2 << " " << win_x2 << " "
+                  << win_z2 << std::endl;
+        fine_grained_timer.start_timer("second_pass_and_rescale");
+        //calculate abs and subtract from original
+        calc_abs_diff(local_scale_temp2, local_scale_temp);
+        //Second spatial average
+        if (local_scale_temp.y_num > 1) {
+            calc_sat_mean_y(local_scale_temp, win_y2);
+        }
+        if (local_scale_temp.x_num > 1) {
+            calc_sat_mean_x(local_scale_temp, win_x2);
+        }
+        if (local_scale_temp.z_num > 1) {
+            calc_sat_mean_z(local_scale_temp, win_z2);
+        }
+        rescale_var_and_threshold(local_scale_temp, var_rescale, par);
+        fine_grained_timer.stop_timer();
+
+    } else {
+
+        float min_val = 660000;
+        double sum = 0;
+        float tmp;
+
+        for(int z=0; z<local_scale_temp.z_num; ++z) {
+            for(int x=0; x<local_scale_temp.x_num; ++x) {
+                for(int y = 0; y<local_scale_temp.y_num; ++y) {
+
+                    int index = z*local_scale_temp.x_num*local_scale_temp.y_num + x*local_scale_temp.y_num + y;
+
+                    tmp = local_scale_temp.mesh[index];
+
+                    sum += tmp;
+
+                    if(tmp < min_val) {
+                        min_val = tmp;
+                    }
+                }
+            }
+        }
+
+        float mean = sum / (local_scale_temp.y_num * local_scale_temp.x_num * local_scale_temp.z_num);
+
+        for(int z=0; z<local_scale_temp.z_num; ++z) {
+            for(int x=0; x<local_scale_temp.x_num; ++x) {
+                for(int y = 0; y<local_scale_temp.y_num; ++y) {
+
+                    int index = z*local_scale_temp.x_num*local_scale_temp.y_num + x*local_scale_temp.y_num + y;
+
+                    local_scale_temp.mesh[index] = mean - min_val;
+                }
+            }
+        }
     }
-    if(local_scale_temp.x_num > 1) {
-        calc_sat_mean_x(local_scale_temp, win_x2);
-    }
-    if(local_scale_temp.z_num > 1) {
-        calc_sat_mean_z(local_scale_temp, win_z2);
-    }
-    rescale_var_and_threshold( local_scale_temp, var_rescale,par);
-    fine_grained_timer.stop_timer();
 
 }
 
