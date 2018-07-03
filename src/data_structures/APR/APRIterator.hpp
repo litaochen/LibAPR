@@ -5,9 +5,9 @@
 #ifndef PARTPLAY_APR_ITERATOR_NEW_HPP
 #define PARTPLAY_APR_ITERATOR_NEW_HPP
 
-#include "APR.hpp"
+//#include "APR.hpp"
 #include "APRAccess.hpp"
-#include "APRTree.hpp"
+//#include "APRTree.hpp"
 
 template<typename ImageType>
 class APRIterator {
@@ -69,11 +69,11 @@ public:
         return current_gap.iterator->second.global_index_begin;
     }
 
-    explicit APRIterator(APR<ImageType>& apr){
-        apr_access = &apr.apr_access;
-        current_particle_cell.global_index = UINT64_MAX;
-        highest_resolution_type = 1;
-    }
+//    explicit APRIterator(APR<ImageType>& apr){
+//        apr_access = &apr.apr_access;
+//        current_particle_cell.global_index = UINT64_MAX;
+//        highest_resolution_type = 1;
+//    }
 
     explicit APRIterator(APRAccess& apr_access_, uint8_t aHighestResolutionType = 1){
         apr_access = &apr_access_;
@@ -448,7 +448,7 @@ public:
     bool find_neighbours_in_direction(const uint8_t& direction){
 
         //the three cases
-        if(current_particle_cell.level == apr_access->level_max){
+        if(current_particle_cell.level == apr_access->l_max){
             //for (int l = 0; l < 2; ++l) {
 
             apr_access->get_neighbour_coordinate(current_particle_cell,neighbour_particle_cell,direction,_LEVEL_SAME,0);
@@ -474,7 +474,7 @@ public:
 
             //}
 
-        } else if(current_particle_cell.level == apr_access->level_min){
+        } else if(current_particle_cell.level == apr_access->l_min){
             //for (int l = 0; l < 2; ++l) {
 
             apr_access->get_neighbour_coordinate(current_particle_cell,neighbour_particle_cell,direction,_LEVEL_SAME,0);
@@ -580,40 +580,40 @@ public:
 
     inline unsigned int x_nearest_pixel(){
         //get x
-        return floor((current_particle_cell.x+0.5)*pow(2, apr_access->level_max - current_particle_cell.level));
+        return floor((current_particle_cell.x+0.5)*pow(2, apr_access->l_max - current_particle_cell.level));
     }
 
     inline float x_global(){
         //get x
-        return (current_particle_cell.x+0.5)*pow(2, apr_access->level_max - current_particle_cell.level);
+        return (current_particle_cell.x+0.5)*pow(2, apr_access->l_max - current_particle_cell.level);
     }
 
     inline unsigned int y_nearest_pixel(){
         //get x
-        return floor((current_particle_cell.y+0.5)*pow(2, apr_access->level_max - current_particle_cell.level));
+        return floor((current_particle_cell.y+0.5)*pow(2, apr_access->l_max - current_particle_cell.level));
     }
 
     inline float y_global(){
         //get x
-        return (current_particle_cell.y+0.5)*pow(2, apr_access->level_max - current_particle_cell.level);
+        return (current_particle_cell.y+0.5)*pow(2, apr_access->l_max - current_particle_cell.level);
     }
 
     inline unsigned int z_nearest_pixel(){
         //get z nearest pixel
-        return floor((current_particle_cell.z+0.5)*pow(2, apr_access->level_max - current_particle_cell.level));
+        return floor((current_particle_cell.z+0.5)*pow(2, apr_access->l_max - current_particle_cell.level));
     }
 
     inline float z_global(){
         //get z global coordinate
-        return (current_particle_cell.z+0.5)*pow(2, apr_access->level_max - current_particle_cell.level);
+        return (current_particle_cell.z+0.5)*pow(2, apr_access->l_max - current_particle_cell.level);
     }
 
     inline uint16_t level_min(){
-        return apr_access->level_min;
+        return apr_access->l_min;
     }
 
     inline uint16_t level_max(){
-        return apr_access->level_max;
+        return apr_access->l_max;
     }
 
     inline uint64_t spatial_index_x_max(const unsigned int level){

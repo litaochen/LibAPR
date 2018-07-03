@@ -40,8 +40,8 @@ private:
         // extend one extra level
         uint64_t l_max = apr.level_max() - 1;
         uint64_t l_min = apr.level_min() - 1;
-        tree_access.level_min = l_min;
-        tree_access.level_max = l_max;
+        tree_access.l_min = l_min;
+        tree_access.l_max = l_max;
 
         std::vector<PixelData<uint8_t>> particle_cell_parent_tree(l_max + 1);
 
@@ -61,7 +61,7 @@ private:
         // --------------------------------------------------------------------
         timer.start_timer("tree - insert vals");
 
-        APRIterator<ImageType> apr_iterator(apr);
+        APRIterator<ImageType> apr_iterator(apr.apr_access);
 
         //note the use of the dynamic OpenMP schedule.
 

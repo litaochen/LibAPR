@@ -23,7 +23,7 @@ public:
         APRTreeIterator<T> treeIterator(apr_tree);
         APRTreeIterator<T> parentIterator(apr_tree);
 
-        APRIterator<T> apr_iterator(apr);
+        APRIterator<T> apr_iterator(apr.apr_access);
 
         ExtraParticleData<uint8_t> child_counter;
 
@@ -105,7 +105,7 @@ public:
         APRTreeIterator<T> treeIterator(apr_tree);
         APRTreeIterator<T> parentIterator(apr_tree);
 
-        APRIterator<T> apr_iterator(apr);
+        APRIterator<T> apr_iterator(apr.apr_access);
 
         int z_d;
         int x_d;
@@ -290,7 +290,7 @@ public:
 
         APRTreeIterator<T> parentIterator(apr_tree);
 
-        APRIterator<T> apr_iterator(apr);
+        APRIterator<T> apr_iterator(apr.apr_access);
 
         uint64_t particle_number = 0;
 
@@ -332,8 +332,8 @@ public:
         APRTreeIterator<uint16_t> apr_tree_iterator(apr_tree);
 
         APRTreeIterator<uint16_t> neighbour_tree_iterator(apr_tree);
-        APRIterator<uint16_t> apr_iterator(apr);
-        APRIterator<uint16_t> neigh_iterator(apr);
+        APRIterator<uint16_t> apr_iterator(apr.apr_access);
+        APRIterator<uint16_t> neigh_iterator(apr.apr_access);
 
         ExtraParticleData<uint16_t> boundary_type(apr);
 
@@ -769,8 +769,8 @@ public:
         APRTreeIterator<uint16_t> parent_iterator(apr_tree);
 
         APRTreeIterator<uint16_t> neighbour_tree_iterator(apr_tree);
-        APRIterator<uint16_t> apr_iterator(apr);
-        APRIterator<uint16_t> neigh_iterator(apr);
+        APRIterator<uint16_t> apr_iterator(apr.apr_access);
+        APRIterator<uint16_t> neigh_iterator(apr.apr_access);
 
         ExtraParticleData<uint16_t> boundary_type(apr);
 
@@ -1171,8 +1171,8 @@ public:
         APRTreeIterator<uint16_t> parent_iterator(apr_tree);
 
         APRTreeIterator<uint16_t> neighbour_tree_iterator(apr_tree);
-        APRIterator<uint16_t> apr_iterator(apr);
-        APRIterator<uint16_t> neigh_iterator(apr);
+        APRIterator<uint16_t> apr_iterator(apr.apr_access);
+        APRIterator<uint16_t> neigh_iterator(apr.apr_access);
 
         ExtraParticleData<uint16_t> boundary_type(apr);
 
@@ -1540,8 +1540,8 @@ public:
         APRTreeIterator<uint16_t> parent_iterator(apr_tree);
 
         APRTreeIterator<uint16_t> neighbour_tree_iterator(apr_tree);
-        APRIterator<uint16_t> apr_iterator(apr);
-        APRIterator<uint16_t> neigh_iterator(apr);
+        APRIterator<uint16_t> apr_iterator(apr.apr_access);
+        APRIterator<uint16_t> neigh_iterator(apr.apr_access);
 
         ExtraParticleData<uint16_t> boundary_type(apr);
 

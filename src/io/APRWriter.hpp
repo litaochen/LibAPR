@@ -106,8 +106,8 @@ public:
         readAttr(AprTypes::NumberOfYType, f.groupId, &apr.apr_access.org_dims[0]);
         readAttr(AprTypes::NumberOfXType, f.groupId, &apr.apr_access.org_dims[1]);
         readAttr(AprTypes::NumberOfZType, f.groupId, &apr.apr_access.org_dims[2]);
-        readAttr(AprTypes::MaxLevelType, f.groupId, &apr.apr_access.level_max);
-        readAttr(AprTypes::MinLevelType, f.groupId, &apr.apr_access.level_min);
+        readAttr(AprTypes::MaxLevelType, f.groupId, &apr.apr_access.l_max);
+        readAttr(AprTypes::MinLevelType, f.groupId, &apr.apr_access.l_min);
         readAttr(AprTypes::LambdaType, f.groupId, &apr.parameters.lambda);
         int compress_type;
         readAttr(AprTypes::CompressionType, f.groupId, &compress_type);
@@ -126,11 +126,11 @@ public:
         readAttr(AprTypes::BackgroundIntensityEstimateType, f.groupId, &apr.parameters.background_intensity_estimate);
         readAttr(AprTypes::NoiseSdEstimateType, f.groupId, &apr.parameters.noise_sd_estimate);
 
-        apr.apr_access.x_num.resize(apr.apr_access.level_max+1);
-        apr.apr_access.y_num.resize(apr.apr_access.level_max+1);
-        apr.apr_access.z_num.resize(apr.apr_access.level_max+1);
+        apr.apr_access.x_num.resize(apr.apr_access.l_max+1);
+        apr.apr_access.y_num.resize(apr.apr_access.l_max+1);
+        apr.apr_access.z_num.resize(apr.apr_access.l_max+1);
 
-        for (size_t i = apr.apr_access.level_min;i < apr.apr_access.level_max; i++) {
+        for (size_t i = apr.apr_access.l_min;i < apr.apr_access.l_max; i++) {
             int x_num, y_num, z_num;
             //TODO: x_num and other should have HDF5 type uint64?
             readAttr(AprTypes::NumberOfLevelXType, i, f.groupId, &x_num);
@@ -148,9 +148,9 @@ public:
         if (apr.particles_intensities.data.size() > 0) {
             readData(AprTypes::ParticleIntensitiesType, f.objectId, apr.particles_intensities.data.data());
         }
-        apr.apr_access.y_num[apr.apr_access.level_max] = apr.apr_access.org_dims[0];
-        apr.apr_access.x_num[apr.apr_access.level_max] = apr.apr_access.org_dims[1];
-        apr.apr_access.z_num[apr.apr_access.level_max] = apr.apr_access.org_dims[2];
+        apr.apr_access.y_num[apr.apr_access.l_max] = apr.apr_access.org_dims[0];
+        apr.apr_access.x_num[apr.apr_access.l_max] = apr.apr_access.org_dims[1];
+        apr.apr_access.z_num[apr.apr_access.l_max] = apr.apr_access.org_dims[2];
 
         timer.stop_timer();
 
@@ -252,8 +252,8 @@ public:
         writeString(AprTypes::NameType, f.groupId, (apr.name.size() == 0) ? "no_name" : apr.name);
         writeString(AprTypes::GitType, f.groupId, ConfigAPR::APR_GIT_HASH);
         writeAttr(AprTypes::TotalNumberOfParticlesType, f.groupId, &apr.apr_access.total_number_particles);
-        writeAttr(AprTypes::MaxLevelType, f.groupId, &apr.apr_access.level_max);
-        writeAttr(AprTypes::MinLevelType, f.groupId, &apr.apr_access.level_min);
+        writeAttr(AprTypes::MaxLevelType, f.groupId, &apr.apr_access.l_max);
+        writeAttr(AprTypes::MinLevelType, f.groupId, &apr.apr_access.l_min);
 
         int compress_type_num = apr_compressor.get_compression_type();
         writeAttr(AprTypes::CompressionType, f.groupId, &compress_type_num);
@@ -342,14 +342,14 @@ public:
 
         writeString(AprTypes::NameType, f.groupId, (apr.name.size() == 0) ? "no_name" : apr.name);
         writeString(AprTypes::GitType, f.groupId, ConfigAPR::APR_GIT_HASH);
-        writeAttr(AprTypes::MaxLevelType, f.groupId, &apr.apr_access.level_max);
-        writeAttr(AprTypes::MinLevelType, f.groupId, &apr.apr_access.level_min);
+        writeAttr(AprTypes::MaxLevelType, f.groupId, &apr.apr_access.l_max);
+        writeAttr(AprTypes::MinLevelType, f.groupId, &apr.apr_access.l_min);
         writeAttr(AprTypes::TotalNumberOfParticlesType, f.groupId, &apr.apr_access.total_number_particles);
 
         // ------------- write data ----------------------------
         writeDataStandard({(Hdf5Type<T>::type()), AprTypes::ParticlePropertyType}, f.objectId, parts.data);
 
-        APRIterator<ImageType> apr_iterator(apr);
+        APRIterator<ImageType> apr_iterator(apr.apr_access);
         std::vector<uint16_t> xv(apr_iterator.total_number_particles());
         std::vector<uint16_t> yv(apr_iterator.total_number_particles());
         std::vector<uint16_t> zv(apr_iterator.total_number_particles());
