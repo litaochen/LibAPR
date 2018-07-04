@@ -24,7 +24,7 @@ public:
 
 private:
 
-    template<typename S> friend class APRIterator;
+    friend class APRIterator;
     template<typename S> friend class APRTreeIterator;
 
     APRAccess tree_access;
@@ -61,7 +61,7 @@ private:
         // --------------------------------------------------------------------
         timer.start_timer("tree - insert vals");
 
-        APRIterator<ImageType> apr_iterator(apr.apr_access);
+        auto apr_iterator = apr.iterator();
 
         //note the use of the dynamic OpenMP schedule.
 
