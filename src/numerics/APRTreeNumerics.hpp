@@ -14,14 +14,14 @@ class APRTreeNumerics {
 
 public:
     template<typename T,typename S,typename U,typename BinaryOperation>
-    static void fill_tree_from_particles(APR<T>& apr,APRTree<T>& apr_tree,ExtraParticleData<S>& particle_data,ExtraParticleData<U>& tree_data,BinaryOperation op,const bool normalize = false,U empty_val = 0) {
+    static void fill_tree_from_particles(APR<T>& apr,APRTree &apr_tree,ExtraParticleData<S>& particle_data,ExtraParticleData<U>& tree_data,BinaryOperation op,const bool normalize = false,U empty_val = 0) {
 
         tree_data.init_tree(apr_tree.total_number_parent_cells());
 
         std::fill(tree_data.data.begin(),tree_data.data.end(),empty_val);
 
-        APRTreeIterator<T> treeIterator(apr_tree);
-        APRTreeIterator<T> parentIterator(apr_tree);
+        APRTreeIterator treeIterator(apr_tree);
+        APRTreeIterator parentIterator(apr_tree);
 
         auto apr_iterator = apr.iterator();
 
@@ -91,7 +91,7 @@ public:
     }
 
     template<typename T,typename S,typename U>
-    static void fill_tree_mean(APR<T>& apr,APRTree<T>& apr_tree,ExtraParticleData<S>& particle_data,ExtraParticleData<U>& tree_data) {
+    static void fill_tree_mean(APR<T>& apr, APRTree &apr_tree,ExtraParticleData<S>& particle_data,ExtraParticleData<U>& tree_data) {
 
         APRTimer timer;
         timer.verbose_flag = true;
@@ -102,8 +102,8 @@ public:
 
         //std::fill(tree_data.data.begin(), tree_data.data.end(), 0);
 
-        APRTreeIterator<T> treeIterator(apr_tree);
-        APRTreeIterator<T> parentIterator(apr_tree);
+        APRTreeIterator treeIterator(apr_tree);
+        APRTreeIterator parentIterator(apr_tree);
 
         auto apr_iterator = apr.iterator();
 
@@ -231,10 +231,10 @@ public:
 
 
     template<typename T,typename S>
-    static ExtraParticleData<S> meanDownsampling(APR<T> &aInputApr, APRTree<T> &aprTree) {
+    static ExtraParticleData<S> meanDownsampling(APR<T> &aInputApr, APRTree &aprTree) {
         auto aprIt = aInputApr.iterator();
-        APRTreeIterator<T> treeIt(aprTree);
-        APRTreeIterator<T> parentTreeIt(aprTree);
+        APRTreeIterator treeIt(aprTree);
+        APRTreeIterator parentTreeIt(aprTree);
         ExtraParticleData<S> outputTree(aprTree);
         ExtraParticleData<uint8_t> childCnt(aprTree);
         auto &intensities = aInputApr.particles_intensities;
@@ -281,14 +281,14 @@ public:
     }
 
     template<typename T,typename S,typename U>
-    static void pull_down_tree_to_particles(APR<T>& apr,APRTree<T>& apr_tree,ExtraParticleData<S>& particle_data,ExtraParticleData<U>& tree_data,uint8_t level_offset) {
+    static void pull_down_tree_to_particles(APR<T>& apr, APRTree &apr_tree,ExtraParticleData<S>& particle_data,ExtraParticleData<U>& tree_data,uint8_t level_offset) {
         //
         //  Retrieves a value "level_offset" values up the tree and returns them as Particle data
         //
 
         particle_data.init(apr);
 
-        APRTreeIterator<T> parentIterator(apr_tree);
+        APRTreeIterator parentIterator(apr_tree);
 
         auto apr_iterator = apr.iterator();
 
@@ -317,7 +317,7 @@ public:
     };
 
     template<typename T,typename S>
-    static void calculate_adaptive_min(APR<T>& apr,APRTree<T>& apr_tree,ExtraParticleData<S>& intensities,ExtraParticleData<S>& adaptive_min,unsigned int smooth_factor = 7){
+    static void calculate_adaptive_min(APR<T>& apr, APRTree &apr_tree,ExtraParticleData<S>& intensities,ExtraParticleData<S>& adaptive_min,unsigned int smooth_factor = 7){
 
 
         APRTimer timer;
@@ -329,9 +329,9 @@ public:
         timer.stop_timer();
 
         timer.start_timer("init");
-        APRTreeIterator<uint16_t> apr_tree_iterator(apr_tree);
+        APRTreeIterator apr_tree_iterator(apr_tree);
 
-        APRTreeIterator<uint16_t> neighbour_tree_iterator(apr_tree);
+        APRTreeIterator neighbour_tree_iterator(apr_tree);
         auto apr_iterator = apr.iterator();
         auto neigh_iterator = apr.iterator();
 
@@ -436,7 +436,7 @@ public:
 
         timer.start_timer("loop 2");
 
-        APRTreeIterator<uint16_t> parent_it(apr_tree);
+        APRTreeIterator parent_it(apr_tree);
 
         uint64_t parent_number;
         //then do the rest of the tree where order matters
@@ -756,7 +756,7 @@ public:
     }
 
     template<typename T,typename S>
-    static void calculate_adaptive_max(APR<T>& apr,APRTree<T>& apr_tree,ExtraParticleData<S>& intensities,ExtraParticleData<S>& adaptive_max,unsigned int smooth_factor = 7) {
+    static void calculate_adaptive_max(APR<T>& apr, APRTree &apr_tree,ExtraParticleData<S>& intensities,ExtraParticleData<S>& adaptive_max,unsigned int smooth_factor = 7) {
 
         ExtraParticleData<float> mean_tree;
         APRTreeNumerics::fill_tree_from_particles(apr, apr_tree, intensities, mean_tree,
@@ -765,10 +765,10 @@ public:
         //APRTreeNumerics::fill_tree_from_particles(apr, apr_tree, intensities, mean_tree,
                                                 //  [](const float &a, const float &b) { return std::max(a,b); }, false);
 
-        APRTreeIterator<uint16_t> apr_tree_iterator(apr_tree);
-        APRTreeIterator<uint16_t> parent_iterator(apr_tree);
+        APRTreeIterator apr_tree_iterator(apr_tree);
+        APRTreeIterator parent_iterator(apr_tree);
 
-        APRTreeIterator<uint16_t> neighbour_tree_iterator(apr_tree);
+        APRTreeIterator neighbour_tree_iterator(apr_tree);
         auto apr_iterator = apr.iterator();
         auto neigh_iterator = apr.iterator();
 
@@ -1158,7 +1158,7 @@ public:
 
 
     template<typename T,typename S>
-    static void calculate_adaptive_max_2(APR<T>& apr,APRTree<T>& apr_tree,ExtraParticleData<S>& intensities,ExtraParticleData<S>& adaptive_max,unsigned int level_offset) {
+    static void calculate_adaptive_max_2(APR<T>& apr, APRTree &apr_tree,ExtraParticleData<S>& intensities,ExtraParticleData<S>& adaptive_max,unsigned int level_offset) {
 
         ExtraParticleData<float> mean_tree;
         //APRTreeNumerics::fill_tree_from_particles(apr, apr_tree, intensities, mean_tree,
@@ -1167,10 +1167,10 @@ public:
         APRTreeNumerics::fill_tree_from_particles(apr, apr_tree, intensities, mean_tree,
           [](const float &a, const float &b) { return std::max(a,b); }, false);
 
-        APRTreeIterator<uint16_t> apr_tree_iterator(apr_tree);
-        APRTreeIterator<uint16_t> parent_iterator(apr_tree);
+        APRTreeIterator apr_tree_iterator(apr_tree);
+        APRTreeIterator parent_iterator(apr_tree);
 
-        APRTreeIterator<uint16_t> neighbour_tree_iterator(apr_tree);
+        APRTreeIterator neighbour_tree_iterator(apr_tree);
         auto apr_iterator = apr.iterator();
         auto neigh_iterator = apr.iterator();
 
@@ -1525,7 +1525,7 @@ public:
     }
 
     template<typename T,typename S>
-    static void calculate_adaptive_min_2(APR<T>& apr,APRTree<T>& apr_tree,ExtraParticleData<S>& intensities,ExtraParticleData<S>& adaptive_min,unsigned int level_offset) {
+    static void calculate_adaptive_min_2(APR<T>& apr, APRTree &apr_tree,ExtraParticleData<S>& intensities,ExtraParticleData<S>& adaptive_min,unsigned int level_offset) {
 
         ExtraParticleData<float> mean_tree;
         //APRTreeNumerics::fill_tree_from_particles(apr, apr_tree, intensities, mean_tree,
@@ -1536,10 +1536,10 @@ public:
         APRTreeNumerics::fill_tree_from_particles(apr, apr_tree, intensities, mean_tree,
                                                   [](const float &a, const float &b) { return std::min(a,b); }, false,empty_val);
 
-        APRTreeIterator<uint16_t> apr_tree_iterator(apr_tree);
-        APRTreeIterator<uint16_t> parent_iterator(apr_tree);
+        APRTreeIterator apr_tree_iterator(apr_tree);
+        APRTreeIterator parent_iterator(apr_tree);
 
-        APRTreeIterator<uint16_t> neighbour_tree_iterator(apr_tree);
+        APRTreeIterator neighbour_tree_iterator(apr_tree);
         auto apr_iterator = apr.iterator();
         auto neigh_iterator = apr.iterator();
 

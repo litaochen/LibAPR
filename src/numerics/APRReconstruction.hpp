@@ -78,8 +78,8 @@ public:
 
     }
 
-    template<typename U,typename V,typename S,typename T>
-    void interp_image_patch(APR<S>& apr, APRTree<S>& aprTree,PixelData<U>& img,ExtraParticleData<V>& parts,ExtraParticleData<T>& parts_tree,ReconPatch& reconPatch){
+    template<typename U,typename V,typename S>
+    void interp_image_patch(APR<S>& apr, APRTree &aprTree,PixelData<U>& img,ExtraParticleData<V>& parts,ExtraParticleData<V>& parts_tree,ReconPatch& reconPatch){
         //
         //  Bevan Cheeseman 2016
         //
@@ -204,7 +204,7 @@ public:
 
         if(max_level < apr_iterator.level_max()) {
 
-            APRTreeIterator<S> aprTreeIterator(aprTree);
+            APRTreeIterator aprTreeIterator(aprTree);
 
             unsigned int level = max_level;
 
@@ -763,7 +763,7 @@ public:
     }
 
     template<typename U,typename V,typename S>
-    void interp_parts_smooth_patch(APR<S>& apr,APRTree<S>& aprTree,PixelData<U>& out_image,ExtraParticleData<V>& interp_data,ExtraParticleData<V>& tree_interp_data,ReconPatch& reconPatch,std::vector<float> scale_d = {2,2,2}){
+    void interp_parts_smooth_patch(APR<S>& apr,APRTree &aprTree,PixelData<U>& out_image,ExtraParticleData<V>& interp_data,ExtraParticleData<V>& tree_interp_data,ReconPatch& reconPatch,std::vector<float> scale_d = {2,2,2}){
         //
         //  Performs a smooth interpolation, based on the depth (level l) in each direction.
         //
@@ -799,7 +799,7 @@ public:
 
         ExtraParticleData<U> level_partsTree(apr.total_number_particles());
 
-        APRTreeIterator<S> apr_iteratorTree(aprTree);
+        APRTreeIterator apr_iteratorTree(aprTree);
 
 
 #ifdef HAVE_OPENMP

@@ -9,27 +9,30 @@
 
 #define INTERIOR_PARENT 9
 
-template<typename ImageType>
 class APRTree {
+
+    friend class APRIterator;
+    friend class APRTreeIterator;
 
 public:
 
     APRTree() {};
+
+    template <typename ImageType>
     APRTree(APR<ImageType> &apr) { initialize_apr_tree(apr); }
 
+    template <typename ImageType>
     void init(APR<ImageType> &apr) { initialize_apr_tree(apr); }
 
     inline uint64_t total_number_parent_cells() const { return tree_access.total_number_particles; }
-
+    operator uint64_t() { return total_number_parent_cells(); }
 
 private:
 
-    friend class APRIterator;
-    template<typename S> friend class APRTreeIterator;
-
     APRAccess tree_access;
 
-    void initialize_apr_tree(APR<ImageType>& apr, bool type_full = false) {
+    template <typename imageType>
+    void initialize_apr_tree(APR<imageType>& apr,bool type_full = false){
 
         APRTimer timer(true);
 
@@ -54,7 +57,6 @@ private:
                                               0);
         }
         timer.stop_timer();
-
 
         // --------------------------------------------------------------------
         // Insert values to the APR tree
@@ -155,7 +157,6 @@ private:
         tree_access.initialize_tree_access(apr,particle_cell_parent_tree);
         timer.stop_timer();
     }
-
 };
 
 
