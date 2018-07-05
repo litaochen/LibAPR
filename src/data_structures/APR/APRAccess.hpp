@@ -325,7 +325,7 @@ public:
 
         uint64_t j;
 #ifdef HAVE_OPENMP
-        #pragma omp parallel for default(shared) schedule(dynamic) private(j)
+#pragma omp parallel for default(shared) schedule(dynamic) private(j)
 #endif
         for (j = 0; j < total_number_non_empty_rows; ++j) {
 
@@ -551,6 +551,7 @@ inline void APRAccess::initialize_structure_from_particle_cell_tree(const APR<T>
                 YGap_map gap;
                 gap.global_index_begin = 0;
                 uint64_t counter = 0;
+
                 for (size_t y = 0; y < y_num_; ++y) {
                     uint8_t status = p_map[i][offset_part_map + y];
                     if ((status > min_type) && (status < 5)) {
@@ -663,6 +664,7 @@ inline void APRAccess::initialize_structure_from_particle_cell_tree(const APR<T>
         }
     }
     apr_timer.stop_timer();
+
     apr_timer.start_timer("forth loop");
     //iteration helpers for by level
     global_index_by_level_begin.resize(apr.level_max()+1,1);
@@ -728,10 +730,11 @@ inline void APRAccess::initialize_structure_from_particle_cell_tree(const APR<T>
     APRIterator apr_iterator(*this);
 
     particle_cell_type.data.resize(global_index_by_level_end[l_max-1]+1,0);
+
     for (size_t level = apr_iterator.level_min(); level < apr_iterator.level_max(); ++level) {
-#ifdef HAVE_OPENMP
-#pragma omp parallel for schedule(static) firstprivate(apr_iterator)
-#endif
+        #ifdef HAVE_OPENMP
+        #pragma omp parallel for schedule(static) firstprivate(apr_iterator)
+        #endif
         for (size_t particle_number = apr_iterator.particles_level_begin(level); particle_number <  apr_iterator.particles_level_end(level); ++particle_number) {
             apr_iterator.set_iterator_to_particle_by_number(particle_number);
             const size_t offset_part_map = apr_iterator.x() * apr_iterator.spatial_index_y_max(apr_iterator.level()) +
@@ -777,9 +780,9 @@ inline void APRAccess::initialize_tree_access(const APR<T> &apr, const std::vect
         const uint64_t zNum = z_num[level];
         const uint64_t yNum = y_num[level];
 
-#ifdef HAVE_OPENMP
-#pragma omp parallel for default(shared) if(zNum * xNum > 100)
-#endif
+        #ifdef HAVE_OPENMP
+        #pragma omp parallel for default(shared) if(zNum * xNum > 100)
+        #endif
         for (uint64_t z = 0; z < zNum; ++z) {
             for (uint64_t x = 0; x < xNum; ++x) {
                 const size_t offset_part_map = (x + z * xNum) * yNum ;
@@ -870,6 +873,7 @@ inline void APRAccess::initialize_tree_access(const APR<T> &apr, const std::vect
                 global_index_by_level_and_z_end[level][z] = cumSum - 1;
             }
         }
+
         if (cumSum != cumSumBegin){
             global_index_by_level_begin[level] = cumSumBegin;
             global_index_by_level_end[level] = cumSum - 1;

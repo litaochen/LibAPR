@@ -44,9 +44,8 @@ public:
     bool set_iterator_to_particle_by_number(const uint64_t particle_number);
     bool set_iterator_to_particle_by_number(const uint64_t particle_number,const uint16_t level);
 
-    uint64_t set_new_lzxy(const uint16_t level,const uint16_t z,const uint16_t x,const uint16_t y);
-
     uint64_t set_new_lzx(const uint16_t level,const uint16_t z,const uint16_t x);
+    uint64_t set_new_lzxy(const uint16_t level,const uint16_t z,const uint16_t x,const uint16_t y);
 
     bool set_iterator_to_particle_next_particle();
 
@@ -94,13 +93,10 @@ public:
 
     /////////////////////////
     /// Random access
-    ///
     /////////////////////////
-
     bool set_iterator_by_particle_cell(ParticleCell& random_particle_cell);
     bool set_iterator_by_global_coordinate(float x,float y,float z);
     bool find_neighbours_same_level(const uint8_t& direction);
-
 
 protected:
 
@@ -125,21 +121,22 @@ inline bool APRIterator::set_iterator_to_particle_by_number(const uint64_t parti
     //
     //  Moves the iterator to point to the particle number (global index of the particle)
     //
-    if (particle_number == 0) {
-        current_particle_cell.level = level_min();
-        current_particle_cell.pc_offset = 0;
 
-        if (move_iterator_to_next_non_empty_row(level_max())) {
+    if (particle_number==0){
+        current_particle_cell.level = level_min();
+        current_particle_cell.pc_offset=0;
+
+        if(move_iterator_to_next_non_empty_row(level_max())){
             //found and set
             set_neighbour_flag();
             return true;
-        } else {
+        } else{
             return false; //no particle cells, something is wrong
         }
     } else if (particle_number < apr_access->total_number_particles) {
 
         //iterating just move to next
-        if (particle_number == (current_particle_cell.global_index + 1)) {
+        if(particle_number == (current_particle_cell.global_index+1)){
             bool success = move_to_next_particle_cell();
             set_neighbour_flag();
             return success;
@@ -149,31 +146,28 @@ inline bool APRIterator::set_iterator_to_particle_by_number(const uint64_t parti
         //otherwise now we have to figure out where to look for the next particle cell;
 
         //first find the level
-        while ((current_particle_cell.level <= level_max()) &&
-               (particle_number > apr_access->global_index_by_level_end[current_particle_cell.level])) {
+        while((current_particle_cell.level <= level_max()) && (particle_number > apr_access->global_index_by_level_end[current_particle_cell.level])  ){
             current_particle_cell.level++;
         }
 
         //then find the offset (zx row)
-        current_particle_cell.pc_offset = 0;
+        current_particle_cell.pc_offset=0;
 
-        while (particle_number > particles_offset_end(current_particle_cell.level, current_particle_cell.pc_offset)) {
+        while(particle_number > particles_offset_end(current_particle_cell.level,current_particle_cell.pc_offset)){
             current_particle_cell.pc_offset++;
         }
 
         //back out your xz from the offset
-        current_particle_cell.z = (current_particle_cell.pc_offset) / spatial_index_x_max(current_particle_cell.level);
-        current_particle_cell.x = (current_particle_cell.pc_offset) -
-                                  current_particle_cell.z * (spatial_index_x_max(current_particle_cell.level));
+        current_particle_cell.z = (current_particle_cell.pc_offset)/spatial_index_x_max(current_particle_cell.level);
+        current_particle_cell.x = (current_particle_cell.pc_offset) - current_particle_cell.z*(spatial_index_x_max(current_particle_cell.level));
 
         current_gap.iterator = apr_access->gap_map.data[current_particle_cell.level][current_particle_cell.pc_offset][0].map.begin();
         //then find the gap.
-        while ((particle_number > apr_access->global_index_end(current_gap))) {
+        while((particle_number > apr_access->global_index_end(current_gap))){
             current_gap.iterator++;
         }
 
-        current_particle_cell.y =
-                (current_gap.iterator->first) + (particle_number - current_gap.iterator->second.global_index_begin);
+        current_particle_cell.y = (current_gap.iterator->first) + (particle_number - current_gap.iterator->second.global_index_begin);
         current_particle_cell.global_index = particle_number;
         set_neighbour_flag();
         return true;
@@ -181,100 +175,6 @@ inline bool APRIterator::set_iterator_to_particle_by_number(const uint64_t parti
     } else {
         current_particle_cell.global_index = -1;
         return false; // requested particle number exceeds the number of particles
-    }
-}
-
-inline uint64_t APRIterator::set_new_lzxy(const uint16_t level,const uint16_t z,const uint16_t x,const uint16_t y) {
-    current_particle_cell.level = level;
-    //otherwise now we have to figure out where to look for the next particle cell;
-
-    //back out your xz from the offset
-    current_particle_cell.z = z;
-    current_particle_cell.x = x;
-    current_particle_cell.y = y;
-
-    current_particle_cell.pc_offset = apr_access->x_num[level]*z + x;
-
-    end_index = particles_zx_end(level, z,
-                                 x);
-
-    if(apr_access->gap_map.data[current_particle_cell.level][current_particle_cell.pc_offset].size() > 0) {
-
-        ParticleCellGapMap& current_pc_map = apr_access->gap_map.data[current_particle_cell.level][current_particle_cell.pc_offset][0];
-
-//            current_gap.iterator = current_pc_map.map.begin();
-//            current_particle_cell.y = current_gap.iterator->first;
-//            current_particle_cell.global_index = current_gap.iterator->second.global_index_begin;
-//            return current_particle_cell.global_index;
-
-        //otherwise search for it (points to first key that is greater than the y value)
-        current_gap.iterator = current_pc_map.map.upper_bound(current_particle_cell.y);
-
-        bool end = false;
-
-        if(current_gap.iterator == current_pc_map.map.begin()){
-            //less then the first value
-
-            current_particle_cell.y = current_gap.iterator->first;
-            current_particle_cell.global_index = current_gap.iterator->second.global_index_begin;
-
-            set_neighbour_flag();
-
-            return current_particle_cell.global_index;
-        } else{
-
-            if(current_gap.iterator == current_pc_map.map.end()){
-                end = true;
-            }
-            current_gap.iterator--;
-        }
-
-        if ((current_particle_cell.y >= current_gap.iterator->first) & (current_particle_cell.y <= current_gap.iterator->second.y_end)) {
-            // exists
-            current_particle_cell.global_index = current_gap.iterator->second.global_index_begin +
-                                                 (current_particle_cell.y - current_gap.iterator->first);
-            set_neighbour_flag();
-            return current_particle_cell.global_index;
-        }
-
-        if(end){
-            //no more particles
-            current_particle_cell.global_index = UINT64_MAX;
-            return current_particle_cell.global_index;
-        } else {
-            //still within range
-            current_particle_cell.global_index = current_gap.iterator->second.global_index_begin;
-            current_particle_cell.y = current_gap.iterator->first;
-            set_neighbour_flag();
-            return current_particle_cell.global_index;
-        }
-    } else {
-        return UINT64_MAX;
-    }
-}
-
-inline bool APRIterator::set_iterator_to_particle_next_particle(){
-    //
-    //  Moves the iterator to point to the particle number (global index of the particle)
-    //
-
-    if( (current_particle_cell.y+1) <= current_gap.iterator->second.y_end){
-        //  Still in same y gap
-
-        current_particle_cell.global_index++;
-        current_particle_cell.y++;
-        return true;
-
-    } else {
-
-        //not in the same gap
-        current_gap.iterator++;//move the iterator forward.
-
-
-        //I am in the next gap
-        current_particle_cell.global_index++;
-        current_particle_cell.y = current_gap.iterator->first; // the key is the first y value for the gap
-        return true;
     }
 }
 
@@ -353,9 +253,108 @@ inline uint64_t APRIterator::set_new_lzx(const uint16_t level,const uint16_t z,c
         set_neighbour_flag();
 
         // IN HERE PUT THE STARTING INDEX!
+        end_index = particles_zx_end(level, z,
+                                     x);
+
         return current_particle_cell.global_index;
     } else {
         return UINT64_MAX;
+    }
+}
+
+inline uint64_t APRIterator::set_new_lzxy(const uint16_t level,const uint16_t z,const uint16_t x,const uint16_t y) {
+    current_particle_cell.level = level;
+    //otherwise now we have to figure out where to look for the next particle cell;
+
+    //back out your xz from the offset
+    current_particle_cell.z = z;
+    current_particle_cell.x = x;
+    current_particle_cell.y = y;
+
+    current_particle_cell.pc_offset = apr_access->x_num[level]*z + x;
+
+    end_index = particles_zx_end(level, z,
+                                 x);
+
+    if(apr_access->gap_map.data[current_particle_cell.level][current_particle_cell.pc_offset].size() > 0) {
+
+        ParticleCellGapMap& current_pc_map = apr_access->gap_map.data[current_particle_cell.level][current_particle_cell.pc_offset][0];
+
+//            current_gap.iterator = current_pc_map.map.begin();
+//            current_particle_cell.y = current_gap.iterator->first;
+//            current_particle_cell.global_index = current_gap.iterator->second.global_index_begin;
+//            return current_particle_cell.global_index;
+
+        //otherwise search for it (points to first key that is greater than the y value)
+        current_gap.iterator = current_pc_map.map.upper_bound(current_particle_cell.y);
+
+        bool end = false;
+
+        if(current_gap.iterator == current_pc_map.map.begin()){
+            //less then the first value
+
+            current_particle_cell.y = current_gap.iterator->first;
+            current_particle_cell.global_index = current_gap.iterator->second.global_index_begin;
+
+            set_neighbour_flag();
+
+            return current_particle_cell.global_index;
+        } else{
+
+            if(current_gap.iterator == current_pc_map.map.end()){
+                end = true;
+            }
+            current_gap.iterator--;
+        }
+
+        if ((current_particle_cell.y >= current_gap.iterator->first) & (current_particle_cell.y <= current_gap.iterator->second.y_end)) {
+            // exists
+            current_particle_cell.global_index = current_gap.iterator->second.global_index_begin +
+                                                 (current_particle_cell.y - current_gap.iterator->first);
+            set_neighbour_flag();
+            return current_particle_cell.global_index;
+        }
+
+        if(end){
+            //no more particles
+            current_particle_cell.global_index = UINT64_MAX;
+            return current_particle_cell.global_index;
+        } else {
+            //still within range
+            current_particle_cell.global_index = current_gap.iterator->second.global_index_begin;
+            current_particle_cell.y = current_gap.iterator->first;
+            set_neighbour_flag();
+            return current_particle_cell.global_index;
+        }
+
+
+    } else {
+        return UINT64_MAX;
+    }
+}
+
+inline bool APRIterator::set_iterator_to_particle_next_particle(){
+    //
+    //  Moves the iterator to point to the particle number (global index of the particle)
+    //
+
+    if( (current_particle_cell.y+1) <= current_gap.iterator->second.y_end){
+        //  Still in same y gap
+
+        current_particle_cell.global_index++;
+        current_particle_cell.y++;
+        return true;
+
+    } else {
+
+        //not in the same gap
+        current_gap.iterator++;//move the iterator forward.
+
+
+        //I am in the next gap
+        current_particle_cell.global_index++;
+        current_particle_cell.y = current_gap.iterator->first; // the key is the first y value for the gap
+        return true;
     }
 }
 
@@ -431,7 +430,6 @@ inline ParticleCell APRIterator::get_neigh_particle_cell(){
 }
 
 inline bool APRIterator::find_neighbours_in_direction(const uint8_t& direction){
-
     //the three cases
     if(current_particle_cell.level == apr_access->l_max){
         //for (int l = 0; l < 2; ++l) {
@@ -651,7 +649,6 @@ inline bool APRIterator::set_iterator_by_global_coordinate(float x,float y,float
 }
 
 inline bool APRIterator::find_neighbours_same_level(const uint8_t& direction){
-
     bool found = false;
 
     this->apr_access->get_neighbour_coordinate(this->current_particle_cell,this->neighbour_particle_cell,direction,_LEVEL_SAME,0);
@@ -670,11 +667,9 @@ inline bool APRIterator::find_neighbours_same_level(const uint8_t& direction){
     }
 
     return found;
-
 }
 
 inline bool APRIterator::find_next_child(const uint8_t& direction,const uint8_t& index){
-
     level_delta = _LEVEL_INCREASE;
     apr_access->get_neighbour_coordinate(current_particle_cell,neighbour_particle_cell,direction,level_delta,index);
 
@@ -698,7 +693,6 @@ inline bool APRIterator::check_neighbours_particle_cell_in_bounds(){
 }
 
 inline bool APRIterator::move_iterator_to_next_non_empty_row(const uint64_t maximum_level){
-
     uint64_t offset_max = apr_access->x_num[current_particle_cell.level]*apr_access->z_num[current_particle_cell.level];
 
     //iterate until you find the next row or hit the end of the level
