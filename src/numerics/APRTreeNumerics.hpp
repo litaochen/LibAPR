@@ -98,7 +98,7 @@ public:
 
 
         timer.start_timer("ds-init");
-        tree_data.init_tree(apr_tree.total_number_parent_cells());
+        tree_data.init(apr_tree);
 
         //std::fill(tree_data.data.begin(), tree_data.data.end(), 0);
 
