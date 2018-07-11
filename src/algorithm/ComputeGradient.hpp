@@ -78,7 +78,7 @@ void ComputeGradient::mask_gradient(PixelData<T>& grad_ds,PixelData<S>& temp_ds,
 
     TiffUtils::getMesh(file_name, temp_full);
 
-    downsample(temp_ds, temp_full,
+    downsample(temp_full, temp_ds,
                [](const T &x, const T &y) -> T { return std::max(x, y); },
                [](const T &x) -> T { return x; });
 

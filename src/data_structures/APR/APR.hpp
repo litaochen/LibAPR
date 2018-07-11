@@ -14,6 +14,8 @@
 #include "APRAccess.hpp"
 #include "ExtraParticleData.hpp"
 
+//#include "../../io/TiffUtils.hpp"
+
 
 template<typename ImageType>
 class APR {
@@ -185,6 +187,69 @@ public:
             parts[apr_iterator] = img.at(apr_iterator.y_nearest_pixel(),apr_iterator.x_nearest_pixel(),apr_iterator.z_nearest_pixel());
 
         }
+
+    }
+
+    template<typename U,typename V>
+    void get_parts_from_img_alt(PixelData<U>& img, ExtraParticleData<V>& parts){ //PixelData<U>& img_ds
+        //
+        //  Bevan Cheeseman 2016
+        //
+        //  Samples particles by taking pixel values when the particle aligns with a pixel, and an average of the
+        //  surrounding pixel values when they do not align.
+
+        //initialization of the iteration structures
+        APRIterator<ImageType> apr_iterator(*this); //this is required for parallel access
+        uint64_t particle_number;
+        parts.data.resize(apr_iterator.total_number_particles());
+
+
+        //PixelData<float> outimg;
+        //outimg.init(img);
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(static) private(particle_number) firstprivate(apr_iterator)
+#endif
+        for (particle_number = 0; particle_number < apr_iterator.total_number_particles(); ++particle_number) {
+            //needed step for any parallel loop (update to the next part)
+            apr_iterator.set_iterator_to_particle_by_number(particle_number);
+
+            // if particle aligns with a pixel, simply take the pixel value
+            if(apr_iterator.level() == apr_iterator.level_max()) {
+
+                parts[apr_iterator] = img.mesh[apr_iterator.y() + img.y_num*apr_iterator.x() + img.x_num*img.y_num*apr_iterator.z()];
+
+                //outimg.mesh[apr_iterator.y() + img.y_num*apr_iterator.x() + img.x_num*img.y_num*apr_iterator.z()] = parts[apr_iterator];
+            } else {
+                // otherwise take the mean of the neighbouring pixel values
+
+                const uint16_t y = std::min((uint16_t)round(apr_iterator.y_global()), (uint16_t) (img.y_num - 1));
+                const uint16_t x = std::min((uint16_t)round(apr_iterator.x_global()), (uint16_t) (img.x_num - 1));
+                const uint16_t z = std::min((uint16_t)round(apr_iterator.z_global()), (uint16_t) (img.z_num - 1));
+
+                const uint16_t ysh = std::max(y-1, 0);
+                const uint16_t xsh = std::max(x-1, 0);
+                const uint16_t zsh = std::max(z-1, 0);
+
+                double tmp = img.at(y,x,z) / 8.0;   // x, y, z
+                tmp += img.at(y, x, zsh) / 8.0;     // x, y, z-1
+                tmp += img.at(y, xsh, z) / 8.0;     // x-1, y, z
+                tmp += img.at(ysh, x, z) / 8.0;     // x, y-1, z
+                tmp += img.at(y, xsh, zsh) / 8.0;   // x-1, y, z-1
+                tmp += img.at(ysh, x, zsh) / 8.0;   // x, y-1, z-1
+                tmp += img.at(ysh, xsh, z) / 8.0;   // x-1, y-1, z
+                tmp += img.at(ysh, xsh, zsh) / 8.0; // x-1, y-1, z-1
+
+                V val = (V) tmp;
+
+                parts[apr_iterator] = val;
+
+                //outimg.mesh[img.x_num*img.y_num*z + img.y_num*x + y] = val;
+
+            }
+        }
+
+        //TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/sampling_img_lol.tif", outimg);
 
     }
 

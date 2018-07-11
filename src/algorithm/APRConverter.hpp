@@ -74,6 +74,9 @@ private:
     bool check_input_dimensions(PixelData<T> &input_image);
 
     public:
+
+    void get_apr_perfect(APR<ImageType> &apr, PixelData<ImageType> &input_image, PixelData<float> &gt_grad, PixelData<float> &gt_var);
+
     void get_gradient(PixelData<ImageType> &image_temp, PixelData<ImageType> &grad_temp, PixelData<float> &local_scale_temp, PixelData<float> &local_scale_temp2, float bspline_offset, const APRParameters &par);
     void get_local_intensity_scale(PixelData<float> &local_scale_temp, PixelData<float> &local_scale_temp2, const APRParameters &par);
     void get_local_particle_cell_set(PixelData<ImageType> &grad_temp, PixelData<float> &local_scale_temp, PixelData<float> &local_scale_temp2);
@@ -154,6 +157,8 @@ template<typename ImageType> template<typename T>
 bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>& input_image) {
     apr = &aAPR; // in case it was called directly
 
+    init_apr(aAPR, input_image);
+
     total_timer.start_timer("Total_pipeline_excluding_IO");
 
     if(par.check_input) {
@@ -162,8 +167,6 @@ bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>&
             return false;
         }
     }
-
-    init_apr(aAPR, input_image);
 
     ////////////////////////////////////////
     /// Memory allocation of variables
@@ -233,18 +236,19 @@ bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>&
     PullingScheme::pulling_scheme_main();
     method_timer.stop_timer();
 
-    method_timer.start_timer("downsample_pyramid");
+    //method_timer.start_timer("downsample_pyramid");
     std::vector<PixelData<T>> downsampled_img;
     //Down-sample the image for particle intensity estimation
     downsamplePyrmaid(input_image, downsampled_img, aAPR.level_max(), aAPR.level_min());
-    method_timer.stop_timer();
+    //method_timer.stop_timer();
 
     method_timer.start_timer("compute_apr_datastructure");
     aAPR.apr_access.initialize_structure_from_particle_cell_tree(aAPR,particle_cell_tree);
     method_timer.stop_timer();
 
     method_timer.start_timer("sample_particles");
-    aAPR.get_parts_from_img(downsampled_img,aAPR.particles_intensities);
+    //aAPR.get_parts_from_img_alt(input_image,aAPR.particles_intensities);
+    aAPR.get_parts_from_img(downsampled_img, aAPR.particles_intensities);
     method_timer.stop_timer();
 
     computation_timer.stop_timer();
@@ -398,7 +402,6 @@ void APRConverter<ImageType>::get_local_intensity_scale(PixelData<float> &local_
         size_t win_x2 = var_win[4];
         size_t win_z2 = var_win[5];
 
-
         if (local_scale_temp.y_num > 1) {
             fine_grained_timer.start_timer("calc_sat_mean_y");
             calc_sat_mean_y(local_scale_temp, win_y);
@@ -430,6 +433,10 @@ void APRConverter<ImageType>::get_local_intensity_scale(PixelData<float> &local_
         if (local_scale_temp.z_num > 1) {
             calc_sat_mean_z(local_scale_temp, win_z2);
         }
+
+        //var_rescale = 26.0745; // 3D
+        //var_rescale = 28.5398; // 2D
+
         rescale_var_and_threshold(local_scale_temp, var_rescale, par);
         fine_grained_timer.stop_timer();
 
@@ -835,6 +842,59 @@ bool APRConverter<ImageType>::check_input_dimensions(PixelData<T> &input_image) 
     }
     //else
     return false;
+}
+
+
+template<typename ImageType>
+void APRConverter<ImageType>::get_apr_perfect(APR<ImageType> &aAPR, PixelData<ImageType> &input_image, PixelData<float> &gt_grad, PixelData<float> &gt_var) {
+
+    apr = &aAPR;
+
+    init_apr(aAPR, input_image);
+
+    PixelData<float> gradient, local_scale_temp, local_scale;
+
+    //local_scale.initDownsampled(gt_var);
+
+    downsample(gt_grad, gradient,
+               [](const float &x, const float &y) -> float { return std::max(x,y); },
+               [](const float &x) -> float { return x; },
+               true);
+
+
+    downsample(gt_var, local_scale,
+               [](const float &x, const float &y) -> float { return std::max(x,y); },
+               [](const float &x) -> float { return x; },
+               true);
+
+
+    //PixelData<float> local_scale(gt_var, true);
+
+    initialize_particle_cell_tree(aAPR);
+
+    get_local_particle_cell_set(gradient, local_scale, local_scale_temp);
+
+    PullingScheme::pulling_scheme_main();
+
+    std::vector<PixelData<ImageType>> downsampled_img;
+    //Down-sample the image for particle intensity estimation
+    downsamplePyrmaid(input_image, downsampled_img, aAPR.level_max(), aAPR.level_min());
+
+    aAPR.apr_access.initialize_structure_from_particle_cell_tree(aAPR, particle_cell_tree);
+
+    aAPR.get_parts_from_img(downsampled_img, aAPR.particles_intensities);
+
+    //TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/input_sampling.tif", input_image);
+    //aAPR.get_parts_from_img_alt(input_image, aAPR.particles_intensities);
+
+    //aAPR.interp_depth(input_image);
+    //TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/depth_img.tif", input_image);
+
+    //aAPR.interp_img(input_image, aAPR.particles_intensities);
+    //TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/const_recon.tif", input_image);
+
+
+
 }
 
 
