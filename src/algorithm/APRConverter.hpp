@@ -394,7 +394,7 @@ void APRConverter<ImageType>::get_local_intensity_scale(PixelData<float> &local_
 
         float var_rescale;
         std::vector<int> var_win;
-        get_window(var_rescale, var_win, par);
+        get_window_alt(var_rescale, var_win, par, apr->apr_access.number_dimensions);
         size_t win_y = var_win[0];
         size_t win_x = var_win[1];
         size_t win_z = var_win[2];
@@ -434,9 +434,6 @@ void APRConverter<ImageType>::get_local_intensity_scale(PixelData<float> &local_
             calc_sat_mean_z(local_scale_temp, win_z2);
         }
 
-        //var_rescale = 26.0745; // 3D
-        //var_rescale = 28.5398; // 2D
-
         rescale_var_and_threshold(local_scale_temp, var_rescale, par);
         fine_grained_timer.stop_timer();
 
@@ -446,34 +443,29 @@ void APRConverter<ImageType>::get_local_intensity_scale(PixelData<float> &local_
         double sum = 0;
         float tmp;
 
-        for(int z=0; z<local_scale_temp.z_num; ++z) {
-            for(int x=0; x<local_scale_temp.x_num; ++x) {
-                for(int y = 0; y<local_scale_temp.y_num; ++y) {
+        for(int i=0; i<local_scale_temp.mesh.size(); ++i) {
+            tmp = local_scale_temp.mesh[i];
 
-                    int index = z*local_scale_temp.x_num*local_scale_temp.y_num + x*local_scale_temp.y_num + y;
+            sum += tmp;
 
-                    tmp = local_scale_temp.mesh[index];
-
-                    sum += tmp;
-
-                    if(tmp < min_val) {
-                        min_val = tmp;
-                    }
-                }
+            if(tmp < min_val) {
+                min_val = tmp;
             }
         }
 
-        float mean = sum / (local_scale_temp.y_num * local_scale_temp.x_num * local_scale_temp.z_num);
+        int numel = (local_scale_temp.y_num * local_scale_temp.x_num * local_scale_temp.z_num);
+        float mean = sum / numel;
 
-        for(int z=0; z<local_scale_temp.z_num; ++z) {
-            for(int x=0; x<local_scale_temp.x_num; ++x) {
-                for(int y = 0; y<local_scale_temp.y_num; ++y) {
+        sum = 0;
 
-                    int index = z*local_scale_temp.x_num*local_scale_temp.y_num + x*local_scale_temp.y_num + y;
+        for(int i=0; i<local_scale_temp.mesh.size(); ++i) {
+            sum += pow((local_scale_temp.mesh[i]-mean), 2) / (numel - 1);
+        }
 
-                    local_scale_temp.mesh[index] = mean - min_val;
-                }
-            }
+        float std = sqrt(sum);
+
+        for(int i = 0; i<local_scale_temp.mesh.size(); ++i) {
+            local_scale_temp.mesh[i] = std;
         }
     }
 
