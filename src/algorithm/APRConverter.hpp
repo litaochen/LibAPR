@@ -436,13 +436,13 @@ void APRConverter<ImageType>::get_local_intensity_scale(PixelData<float> &local_
 
         // second average for extra smoothing
         if (local_scale_temp.y_num > 1) {
-            calc_sat_mean_y(local_scale_temp, win_y2);
+            calc_sat_mean_y(local_scale_temp, 7);
         }
         if (local_scale_temp.x_num > 1) {
-            calc_sat_mean_x(local_scale_temp, win_x2);
+            calc_sat_mean_x(local_scale_temp, 7);
         }
         if (local_scale_temp.z_num > 1) {
-            calc_sat_mean_z(local_scale_temp, win_z2);
+            calc_sat_mean_z(local_scale_temp, 7);
         }
 
         rescale_var_and_threshold(local_scale_temp, var_rescale, par);
