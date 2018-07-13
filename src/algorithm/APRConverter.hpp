@@ -217,7 +217,6 @@ bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>&
     method_timer.stop_timer();
     method_timer.verbose_flag = false;
 
-
 #else
     method_timer.start_timer("compute_gradient_magnitude_using_bsplines and local instensity scale CUDA");
     getFullPipeline(image_temp, grad_temp, local_scale_temp, local_scale_temp2,bspline_offset, par);
@@ -424,6 +423,18 @@ void APRConverter<ImageType>::get_local_intensity_scale(PixelData<float> &local_
         //calculate abs and subtract from original
         calc_abs_diff(local_scale_temp2, local_scale_temp);
         //Second spatial average
+        if (local_scale_temp.y_num > 1) {
+            calc_sat_mean_y(local_scale_temp, win_y2);
+        }
+        if (local_scale_temp.x_num > 1) {
+            calc_sat_mean_x(local_scale_temp, win_x2);
+        }
+        if (local_scale_temp.z_num > 1) {
+            calc_sat_mean_z(local_scale_temp, win_z2);
+        }
+
+
+        // second average for extra smoothing
         if (local_scale_temp.y_num > 1) {
             calc_sat_mean_y(local_scale_temp, win_y2);
         }
