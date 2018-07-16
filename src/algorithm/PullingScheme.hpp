@@ -3,22 +3,14 @@
 //
 //  The Pulling Scheme using the full Particle Cell Pyramid as a tree structure.
 //
-//
 //  This code was originally optimized for the OpenMP version by Matteusz Susik in (2016)
-//
-//
 
 #ifndef PARTPLAY_PULLING_SCHEME_HPP
 #define PARTPLAY_PULLING_SCHEME_HPP
 
-#include <cassert>
-#include "../data_structures/APR/APRIterator.hpp"
+#include "data_structures/APR/APRAccess.hpp"
 #include "data_structures/Mesh/PixelData.hpp"
-#include "../data_structures/APR/APR.hpp"
-
-#ifdef HAVE_OPENMP
-	#include "omp.h"
-#endif
+#include <vector>
 
 #define EMPTY 0
 #define SEED_TYPE 1
@@ -56,52 +48,54 @@ for(jn = j * 2; jn < j * 2 + children_boundaries[0]; jn++) \
 class PullingScheme {
 
 public:
-
-    std::vector<PixelData<uint8_t>> particle_cell_tree;
-    unsigned int l_min;
-    unsigned int l_max;
-
     template<typename T>
     void fill(float k, const PixelData<T> &input);
     void pulling_scheme_main();
-    template<typename T>
-    void initialize_particle_cell_tree(APR<T>& apr);
+    void initialize_particle_cell_tree(const APRAccess &apr_access);
+    std::vector<PixelData<uint8_t>>& getParticleCellTree() { return particle_cell_tree; }
 
 private:
-
     void set_ascendant_neighbours(int level);
     void set_filler(int level);
     void fill_neighbours(int level);
     void fill_parent(size_t j, size_t i, size_t k, size_t x_num, size_t y_num, size_t new_level);
+    std::vector<PixelData<uint8_t>> particle_cell_tree;
+
+    int l_min;
+    int l_max;
 };
 
-template<typename T>
-void PullingScheme::initialize_particle_cell_tree(APR<T>& apr) {
-    //  Initializes the particle cell tree structure
-    //
-    //  Contains pc up to l_max - 1,
-    //
+/**
+ * Initializes particle_cell_tree up to level (max - 1)
+ */
+inline void PullingScheme::initialize_particle_cell_tree(const APRAccess &apr_access) {
+    l_max = apr_access.l_max - 1;
+    l_min = apr_access.l_min;
 
-    l_max = apr.level_max() - 1;
-    l_min = apr.level_min();
-    //make so you can reference the array as l
     particle_cell_tree.resize(l_max + 1);
 
-    for (unsigned int l = l_min; l < (l_max + 1) ;l ++){
-        particle_cell_tree[l].init(ceil((1.0 * apr.apr_access.org_dims[0]) / pow(2.0, 1.0 * l_max - l + 1)),
-                                   ceil((1.0 * apr.apr_access.org_dims[1]) / pow(2.0, 1.0 * l_max - l + 1)),
-                                   ceil((1.0 * apr.apr_access.org_dims[2]) / pow(2.0, 1.0 * l_max - l + 1)), EMPTY);
+    for (int l = l_min; l <= l_max; ++l) {
+        particle_cell_tree[l].init(ceil(apr_access.org_dims[0] / pow(2.0, l_max - l + 1)),
+                                   ceil(apr_access.org_dims[1] / pow(2.0, l_max - l + 1)),
+                                   ceil(apr_access.org_dims[2] / pow(2.0, l_max - l + 1)),
+                                   EMPTY);
     }
     
 }
 
-void PullingScheme::pulling_scheme_main() {
+/**
+ * The Pulling Scheme for forming the Optimal Valid Particle Cell set from the Local Particle Cell set L
+ * Implimented as discussed in Cheeseman et al. 2017 for full description.
+ * Generates the implied resolution function that is used to sample the image in the APR.
+ */
+inline void PullingScheme::pulling_scheme_main() {
+
     //
     //  Bevan Cheeseman 2016
     //
     //  The Pulling Scheme for forming the Optimal Valid Particle Cell set from the Local Particle Cell set L
     //
-    //  Implimented as discussed in Cheeseman et al. 2017 for full description.
+    //  Implimented as discussed in Cheeseman et al. 2018 for full description.
     //
     //  Generates the implied resolution function that is used to sample the image in the APR.
     //
@@ -109,7 +103,7 @@ void PullingScheme::pulling_scheme_main() {
 
     //loop over all levels from l_max to l_min
     for (int level = l_max; level >= (int)l_min; --level) {
-        if (level != (int)l_max) {
+        if (level != l_max) {
             set_ascendant_neighbours(level); //step 1 and step 2.
             set_filler(level); // step 3.
         }
@@ -117,12 +111,11 @@ void PullingScheme::pulling_scheme_main() {
     }
 }
 
+/**
+ * Updates the particle cell tree from the down sampled images
+ */
 template<typename T>
-void PullingScheme::fill(const float k, const PixelData<T> &input) {
-    //  Bevan Cheeseman 2016
-    //
-    //  Updates the hash table from the down sampled images
-
+inline void PullingScheme::fill(const float k, const PixelData<T> &input) {
     auto &mesh = particle_cell_tree[k].mesh;
 
     if (k == l_max){
@@ -154,7 +147,7 @@ void PullingScheme::fill(const float k, const PixelData<T> &input) {
     }
 }
 
-void PullingScheme::set_ascendant_neighbours(int level) {
+inline void PullingScheme::set_ascendant_neighbours(int level) {
     const size_t x_num = particle_cell_tree[level].x_num;
     const size_t y_num = particle_cell_tree[level].y_num;
     const size_t z_num = particle_cell_tree[level].z_num;
@@ -196,7 +189,7 @@ void PullingScheme::set_ascendant_neighbours(int level) {
     }
 }
 
-void PullingScheme::set_filler(int level) {
+inline void PullingScheme::set_filler(int level) {
     short children_boundaries[3] = {2,2,2};
     const int64_t x_num = particle_cell_tree[level].x_num;
     const int64_t y_num = particle_cell_tree[level].y_num;
@@ -250,7 +243,7 @@ void PullingScheme::set_filler(int level) {
     }
 }
 
-void PullingScheme::fill_neighbours(int level) {
+inline void PullingScheme::fill_neighbours(int level) {
     const size_t x_num = particle_cell_tree[level].x_num;
     const size_t y_num = particle_cell_tree[level].y_num;
     const size_t z_num = particle_cell_tree[level].z_num;
@@ -288,7 +281,7 @@ void PullingScheme::fill_neighbours(int level) {
     }
 }
 
-void PullingScheme::fill_parent(size_t j, size_t i, size_t k, size_t x_num, size_t y_num, size_t new_level) {
+inline void PullingScheme::fill_parent(size_t j, size_t i, size_t k, size_t x_num, size_t y_num, size_t new_level) {
     if(new_level >= l_min) {
         size_t new_x_num = ((x_num + 1) / 2);
         size_t new_y_num = ((y_num + 1) / 2);

@@ -1,11 +1,16 @@
 //
-// Created by cheesema on 13.02.18
+// Created by cheesema on 05.07.18.
 //
+
 //////////////////////////////////////////////////////
 ///
 /// Bevan Cheeseman 2018
 const char* usage = R"(
+<<<<<<< HEAD
 Example setting the APR iterator using random access
+=======
+Example using the APR Tree
+>>>>>>> origin/develop
 
 Usage:
 
@@ -21,11 +26,8 @@ random access strategies on the APR.
 
 #include <algorithm>
 #include <iostream>
-#include <io/TiffUtils.hpp>
 
 #include "Example_apr_tree.hpp"
-
-
 
 int main(int argc, char **argv) {
 
@@ -51,79 +53,83 @@ int main(int argc, char **argv) {
     //remove the file extension
     name.erase(name.end() - 3, name.end());
 
-    APRTree<uint16_t> apr_tree(apr);
+    apr.apr_tree.init(apr);
 
-    APRTreeIterator<uint16_t> apr_tree_iterator(apr_tree);
+    apr.apr_tree.fill_tree_mean_downsample(apr.particles_intensities);
 
-    ExtraParticleData<float> tree_data(apr_tree);
+    //must come after initialized. #FIXME is there a way to avoid this?
+    APRTreeIterator apr_tree_iterator = apr.apr_tree.tree_iterator();
 
-    uint64_t counter = 0;
-    uint64_t counter_interior = 0;
-    uint64_t particle_number;
-    //Basic serial iteration over all particles
-    for (particle_number = 0; particle_number < apr_tree.total_number_parent_cells(); ++particle_number) {
-        //This step is required for all loops to set the iterator by the particle number
-        apr_tree_iterator.set_iterator_to_particle_by_number(particle_number);
-        counter++;
-        //std::cout << apr_tree_iterator.x() << " " << apr_tree_iterator.y() << " " << (int)apr_tree_iterator.type() << " " << apr_tree_iterator.global_index() << std::endl;
+    timer.start_timer("APR interior tree loop");
 
-        if(apr_tree_iterator.type() < 8){
-            //count those nodes that do not have children that are in the APR
-            counter_interior++;
-        }
+    ExtraParticleData<uint16_t> partsTreelevel(apr.apr_tree.total_number_parent_cells());
 
-        tree_data[apr_tree_iterator] = apr_tree_iterator.type();
-    }
+    //iteration over the interior tree is identical to that over the standard APR, simply using the APRTreeIterator.
 
-    std::cout << counter << std::endl;
-    std::cout << counter_interior << std::endl;
-    std::cout << counter/(apr.total_number_particles()*1.0f) << std::endl;
+    for (unsigned int level = apr_tree_iterator.level_min(); level <= apr_tree_iterator.level_max(); ++level) {
+        int z = 0;
+        int x = 0;
 
-    APRTreeNumerics::fill_tree_from_particles(apr,apr_tree,apr.particles_intensities,tree_data,[] (const uint16_t& a,const uint16_t& b) {return std::max(a,b);});
+#ifdef HAVE_OPENMP
+        #pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_tree_iterator)
+#endif
+        for (z = 0; z < apr_tree_iterator.spatial_index_z_max(level); z++) {
+            for (x = 0; x < apr_tree_iterator.spatial_index_x_max(level); ++x) {
+                for (apr_tree_iterator.set_new_lzx(level, z, x); apr_tree_iterator.global_index() < apr_tree_iterator.end_index;
+                     apr_tree_iterator.set_iterator_to_particle_next_particle()) {
 
-    apr.write_particles_only(options.directory,"tree_max_parts",tree_data);
+                    if(apr_tree_iterator.level() < apr_tree_iterator.level_max()) {
+                        partsTreelevel[apr_tree_iterator] = (uint16_t)2*apr.apr_tree.particles_ds_tree[apr_tree_iterator];
+                    } else {
+                        partsTreelevel[apr_tree_iterator] = apr.apr_tree.particles_ds_tree[apr_tree_iterator];
+                    }
 
-    ExtraParticleData<float> smooth_tree_data(apr_tree);
-    APRTreeIterator<uint16_t> apr_tree_neighbour_iterator(apr_tree);
 
-    //Neighbour interaciton on apr_tree.
-    for (particle_number = 0; particle_number < apr_tree.total_number_parent_cells(); ++particle_number) {
-        //This step is required for all loops to set the iterator by the particle number
-        apr_tree_iterator.set_iterator_to_particle_by_number(particle_number);
-        counter++;
-        //std::cout << apr_tree_iterator.x() << " " << apr_tree_iterator.y() << " " << (int)apr_tree_iterator.type() << " " << apr_tree_iterator.global_index() << std::endl;
-
-        for (int direction = 0; direction < 2*apr.apr_access.number_dimensions; ++direction) {
-            apr_tree_iterator.find_neighbours_in_direction(direction);
-            // Neighbour Particle Cell Face definitions [+y,-y,+x,-x,+z,-z] =  [0,1,2,3,4,5]
-            float counter = 0;
-            for (int index = 0; index < apr_tree_iterator.number_neighbours_in_direction(direction); ++index) {
-
-                if(apr_tree_neighbour_iterator.set_neighbour_iterator(apr_tree_iterator, direction, index)){
-                    //neighbour_iterator works just like apr, and apr_parallel_iterator (you could also call neighbours)
-                    smooth_tree_data[apr_tree_iterator] += tree_data[apr_tree_neighbour_iterator];
-                    counter++;
                 }
             }
-            if(counter > 0) {
-                smooth_tree_data[apr_tree_iterator] /= counter;
+        }
+    }
+
+    timer.stop_timer();
+
+    //Also neighbour access can be done between neighboring particle cells on the same level
+
+    APRTreeIterator neigh_tree_iterator = apr.apr_tree.tree_iterator();
+
+    timer.start_timer("APR parallel iterator neighbour loop");
+
+    const uint8_t ndirections = apr.apr_access.number_dimensions * 2;
+
+    for (unsigned int level = apr_tree_iterator.level_min(); level <= apr_tree_iterator.level_max(); ++level) {
+        int z = 0;
+        int x = 0;
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_tree_iterator,neigh_tree_iterator)
+#endif
+        for (z = 0; z < apr_tree_iterator.spatial_index_z_max(level); z++) {
+            for (x = 0; x < apr_tree_iterator.spatial_index_x_max(level); ++x) {
+                for (apr_tree_iterator.set_new_lzx(level, z, x); apr_tree_iterator.global_index() < apr_tree_iterator.end_index;
+                     apr_tree_iterator.set_iterator_to_particle_next_particle()) {
+
+                    //loop over all the neighbours and set the neighbour iterator to it
+                    for (int direction = 0; direction < ndirections; ++direction) {
+                        apr_tree_iterator.find_neighbours_same_level(direction);
+                        // Neighbour Particle Cell Face definitions [+y,-y,+x,-x,+z,-z] =  [0,1,2,3,4,5]
+                        for (int index = 0; index < apr_tree_iterator.number_neighbours_in_direction(direction); ++index) {
+
+                            if (neigh_tree_iterator.set_neighbour_iterator(apr_tree_iterator, direction, index)) {
+                                //neighbour_iterator works just like apr, and apr_parallel_iterator (you could also call neighbours)
+
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 
-
-    ExtraParticleData<uint16_t> local_max_parts;
-
-    uint8_t level_offset = 3;
-    APRTreeNumerics::pull_down_tree_to_particles(apr,apr_tree,local_max_parts,tree_data,level_offset);
-
-    // write result to image
-    PixelData<uint16_t> local_max_image;
-    apr.interp_img(local_max_image,local_max_parts);
-
-    std::string image_file_name = options.directory + name + "_tree_max.tif";
-    TiffUtils::saveMeshAsTiffUint16(image_file_name, local_max_image);
-
+    timer.stop_timer();
 
 }
 bool command_option_exists(char **begin, char **end, const std::string &option)

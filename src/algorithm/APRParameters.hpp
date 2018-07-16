@@ -42,6 +42,7 @@ public:
     bool neighborhood_optimization = true;
 
     bool constant_intensity_scale = false;
+    bool output_steps = false;
 
     std::string name;
     std::string output_dir;

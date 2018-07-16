@@ -1,5 +1,5 @@
 //
-// Created by cheesema on 13.02.18.
+// Created by cheesema on 05.07.18.
 //
 
 #ifndef LIBAPR_EXAMPLE_APR_TREE_HPP
@@ -9,9 +9,7 @@
 #include <string>
 
 #include "data_structures/APR/APR.hpp"
-#include "data_structures/APR/APRTree.hpp"
-#include "data_structures/APR/APRTreeIterator.hpp"
-#include "numerics/APRTreeNumerics.hpp"
+
 
 struct cmdLineOptions{
     std::string output = "output";
@@ -27,6 +25,4 @@ bool command_option_exists(char **begin, char **end, const std::string &option);
 
 char* get_command_option(char **begin, char **end, const std::string &option);
 
-
 #endif //LIBAPR_EXAMPLE_APR_TREE_HPP
-

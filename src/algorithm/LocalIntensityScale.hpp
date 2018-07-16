@@ -5,6 +5,7 @@
 #ifndef PARTPLAY_LOCAL_INTENSITY_SCALE_HPP
 #define PARTPLAY_LOCAL_INTENSITY_SCALE_HPP
 
+#include "data_structures/Mesh/PixelData.hpp"
 #include "APRParameters.hpp"
 
 class LocalIntensityScale {
@@ -128,9 +129,6 @@ inline void LocalIntensityScale::get_window_alt(float& var_rescale, std::vector<
     var_win[3] = win_2[psf_ind];
     var_win[4] = win_2[psf_ind];
     var_win[5] = win_2[psf_ind];
-
-    int window_ind_1 =  win_1[psf_ind] - 1;
-    int window_ind_2 =  win_2[psf_ind] - 1;
 
     if( ndim == 3 ) {
         var_rescale = (float)rescale_store_3D[psf_ind];
