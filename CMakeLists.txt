@@ -267,6 +267,10 @@ if(APR_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif(APR_BUILD_EXAMPLES)
 
+include_directories(src)
+message(STATUS "APR: GPUHACK Examples")
+add_subdirectory(gpuhack)
+
 ###############################################################################
 # Tests
 ###############################################################################
