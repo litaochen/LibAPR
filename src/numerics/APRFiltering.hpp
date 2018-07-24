@@ -138,23 +138,48 @@ public:
 
     template<typename ImageType, typename S>
     void convolve_ds_stencil(APR<ImageType> &apr,
-                             PixelData<float> &inputStencil,
+                             const PixelData<float> &inputStencil,
                              ExtraParticleData<S> &particle_intensities,
-                             ExtraParticleData<float> &conv_particle_intensities) {
+                             ExtraParticleData<float> &conv_particle_intensities,
+                             bool normalize=true) {
 
+        std::vector<PixelData<float>> stencil_vec;
+
+        int nstencils = apr.apr_access.level_max() - apr.apr_access.level_min() + 1;
+
+        stencil_vec.resize(nstencils);
+
+        PixelData<float> stencilCopy(inputStencil, true);
+        stencil_vec[0].swap(stencilCopy); // first stencil is a copy of the input stencil
+
+        // remaining stencils are downsampled versions of the input stencil
+        for(int level_delta = 1; level_delta<nstencils; ++level_delta) {
+            downsample_stencil_alt(inputStencil, stencil_vec[level_delta], level_delta, normalize, true);
+        }
+
+        for( int i = 0; i<nstencils; ++i){
+            std::string fileName = "/Users/joeljonsson/Documents/STUFF/stencil_dlevel" + std::to_string(i) + ".tif";
+            TiffUtils::saveMeshAsTiff(fileName, stencil_vec[i]);
+        }
+
+        convolve_equivalent(apr, stencil_vec, particle_intensities, conv_particle_intensities);
+
+        /*
         conv_particle_intensities.init(particle_intensities.total_number_particles());
 
-        /**** initialize and fill the apr tree ****/
+        /// initialize and fill the apr tree
         ExtraParticleData<float> tree_data;
 
         apr.apr_tree.init(apr);
         apr.apr_tree.fill_tree_mean(apr, apr.apr_tree, particle_intensities, tree_data);
 
-        /*** iterators for accessing apr data ***/
+        /// iterators for accessing apr data
         auto apr_iterator = apr.iterator();
         auto tree_iterator = apr.apr_tree.tree_iterator();
 
         PixelData<float> stencil(inputStencil, true);
+
+        int stencil_counter = 0;
 
         for (int level = apr_iterator.level_max(); level >= apr_iterator.level_min(); --level) {
 
@@ -251,6 +276,7 @@ public:
             }//z
 
             // downsample the stencil for the next level
+            stencil_counter++;
 
             std::string fileName = "/Users/joeljonsson/Documents/STUFF/stencil" + std::to_string(level) + ".tif";
             TiffUtils::saveMeshAsTiff(fileName, stencil);
@@ -258,14 +284,119 @@ public:
             if(stencil.mesh.size() > 1) {
                 PixelData<float> stencil_ds;
 
-                downsample_stencil_alt(stencil, stencil_ds,
-                                       [](const float &x, const float &y) -> float { return x + y; },
-                                       [&apr](const float &x) -> float { return x / pow(3, apr.apr_access.number_dimensions); }, true);
+                downsample_stencil_alt(stencil, stencil_ds, stencil_counter, false, true);
 
                 std::swap(stencil, stencil_ds);
             }
 
         }//levels
+        */
+    }
+
+
+    template<typename ImageType, typename S, typename T>
+    void convolve(APR<ImageType> &apr, const PixelData<T>& stencil, ExtraParticleData<S> &particle_intensities, ExtraParticleData<float> &conv_particle_intensities, uint16_t level_delta) {
+
+        conv_particle_intensities.init(particle_intensities.total_number_particles());
+
+        /**** initialize and fill the apr tree ****/
+        ExtraParticleData<float> tree_data;
+
+        apr.apr_tree.init(apr);
+        apr.apr_tree.fill_tree_mean(apr, apr.apr_tree, particle_intensities, tree_data);
+
+        /*** iterators for accessing apr data ***/
+        auto apr_iterator = apr.iterator();
+        auto tree_iterator = apr.apr_tree.tree_iterator();
+
+        const std::vector<int> stencil_shape = {(int) stencil.y_num,
+                                                (int) stencil.x_num,
+                                                (int) stencil.z_num};
+        const std::vector<int> stencil_half = {(stencil_shape[0] - 1) / 2, (stencil_shape[1] - 1) / 2,
+                                               (stencil_shape[2] - 1) / 2};
+
+        // assert stencil_shape compatible with apr org_dims?
+
+        int level = std::max((int)apr_iterator.level_min(), (int)apr_iterator.level_max() - (int)level_delta);
+        unsigned int z = 0;
+        unsigned int x = 0;
+
+        const int z_num = apr_iterator.spatial_index_z_max(level);
+
+        const int y_num_m = (apr.apr_access.org_dims[0] > 1) ? apr_iterator.spatial_index_y_max(level) +
+                                                               stencil_shape[0] - 1 : 1;
+        const int x_num_m = (apr.apr_access.org_dims[1] > 1) ? apr_iterator.spatial_index_x_max(level) +
+                                                               stencil_shape[1] - 1 : 1;
+
+        PixelData<float> temp_vec;
+        temp_vec.init(y_num_m,
+                      x_num_m,
+                      stencil_shape[2],
+                      0); //zero padded boundaries
+
+        //initial condition
+        for (int padd = 0; padd < stencil_half[2]; ++padd) {
+            update_dense_array(level,
+                               padd,
+                               apr,
+                               apr_iterator,
+                               tree_iterator,
+                               tree_data,
+                               temp_vec,
+                               particle_intensities,
+                               stencil_shape,
+                               stencil_half);
+        }
+
+        for (z = 0; z < apr.spatial_index_z_max(level); ++z) {
+
+            if (z < (z_num - stencil_half[2])) {
+                //update the next z plane for the access
+                update_dense_array(level, z + stencil_half[2], apr, apr_iterator, tree_iterator, tree_data,
+                                   temp_vec, particle_intensities, stencil_shape, stencil_half);
+            } else {
+                //padding
+                uint64_t index = temp_vec.x_num * temp_vec.y_num * ((z + stencil_half[2]) % stencil_shape[2]);
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(static) private(x)
+#endif
+                for (x = 0; x < temp_vec.x_num; ++x) {
+                    std::fill(temp_vec.mesh.begin() + index + (x + 0) * temp_vec.y_num,
+                              temp_vec.mesh.begin() + index + (x + 1) * temp_vec.y_num, 0);
+                }
+            }
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x) firstprivate(apr_iterator)
+#endif
+            for (x = 0; x < apr.spatial_index_x_max(level); ++x) {
+                for (apr_iterator.set_new_lzx(level, z, x);
+                     apr_iterator.global_index() < apr_iterator.end_index;
+                     apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                    float neigh_sum = 0;
+                    int counter = 0;
+
+                    const int k = apr_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                    const int i = x + stencil_half[1];
+
+                    //compute the stencil
+
+                    for (int l = -stencil_half[2]; l < stencil_half[2] + 1; ++l) {
+                        for (int q = -stencil_half[1]; q < stencil_half[1] + 1; ++q) {
+                            for (int w = -stencil_half[0]; w < stencil_half[0] + 1; ++w) {
+                                neigh_sum += (stencil.mesh[counter] *
+                                              temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]));
+                                counter++;
+                            }
+                        }
+                    }
+
+                    conv_particle_intensities[apr_iterator] = neigh_sum;
+
+                }//y, pixels/columns
+            }//x , rows
+        }//z
     }
 
 
@@ -354,6 +485,7 @@ public:
         }
     }
 
+
     /**
      * 3^ndim pool downsampling to make an n^ndim stencil (at level l) into a (n-2)^ndim stencil (at level l-1)
      *
@@ -410,98 +542,90 @@ public:
         }
     }
 
-
-    template<typename T, typename S, typename R, typename C>
-    void downsample_stencil_alt(PixelData<T> &aInput, PixelData<S> &aOutput, R reduce, C constant_operator, bool aInitializeOutput = true) {
+    /**
+     * Downsample a stencil by level_delta levels in such a way that applying the downsampled stencil closely
+     * corresponds to applying the original stencil to particles of level = original_level-level_delta.
+     * @tparam T                    input data type
+     * @tparam S                    output data type
+     * @param aInput                input stencil  (PixelData<T>)
+     * @param aOutput               output stencil (PixelData<S>)
+     * @param level_delta           level difference between input and output
+     * @param normalize             should the stencil be normalized (sum to unity)? (default false = no)
+     * @param aInitializeOutput     should the output be initialized? (default true = yes)
+     */
+    template<typename T, typename S>
+    void downsample_stencil_alt(const PixelData<T>& aInput, PixelData<S>& aOutput, int level_delta, bool normalize = false, bool aInitializeOutput = true) {
 
         const size_t z_num = aInput.z_num;
         const size_t x_num = aInput.x_num;
         const size_t y_num = aInput.y_num;
 
-        size_t y_num_ds;
-        int k = (y_num+1)/2;
-        if( k > 1) {
-            if (k % 2 == 0) {
-                int lambda = (2 * (k + 1) - y_num) < (y_num - 2 * (k - 1)) ? 1 : -1;
-                y_num_ds = std::max(k + lambda, 1);
-            } else {
-                y_num_ds = k;
-            }
-        } else {
-            y_num_ds = 1;
-        }
+        const float size_factor = pow(2, level_delta);
+        //const int ndim = (y_num>1) + (x_num > 1) + (z_num>1);
 
-        size_t x_num_ds;
-        k = (x_num+1)/2;
-        if( k > 1) {
-            if (k % 2 == 0) {
-                int lambda = (2*(k+1) - x_num) < (x_num - 2*(k-1)) ? 1 : -1;
-                x_num_ds = std::max(k + lambda, 1);
-            } else {
-                x_num_ds = k;
-            }
-        } else {
-            x_num_ds = 1;
-        }
+        int k = ceil(z_num / size_factor);
+        const size_t z_num_ds = (k % 2 == 0) ? k+1 : k;
 
-        size_t z_num_ds;
-        k = (z_num+1)/2;
-        if( k > 1) {
-            if (k % 2 == 0) {
-                int lambda = (2*(k+1) - z_num) < (z_num - 2*(k-1)) ? 1 : -1;
-                z_num_ds = std::max(k + lambda, 1);
-            } else {
-                z_num_ds = k;
-            }
-        } else {
-            z_num_ds = 1;
-        }
+        k = ceil(x_num / size_factor);
+        const size_t x_num_ds = (k % 2 == 0) ? k+1 : k;
 
-
-        //const size_t y_num_ds = y_num > 1 ? (y_num+1)/2 + (1-((y_num+1)/2)%2) : 1;
-        //const size_t x_num_ds = x_num > 1 ? (x_num+1)/2 + (1-((x_num+1)/2)%2) : 1;
-        //const size_t z_num_ds = z_num > 1 ? (z_num+1)/2 + (1-((z_num+1)/2)%2) : 1;
+        k = ceil(y_num / size_factor);
+        const size_t y_num_ds = (k % 2 == 0) ? k+1 : k;
 
         if (aInitializeOutput) {
             aOutput.init(y_num_ds, x_num_ds, z_num_ds);
         }
 
-        const float offsety = (2.0f*y_num_ds - y_num)/2.0f;
-        const float offsetx = (2.0f*x_num_ds - x_num)/2.0f;
-        const float offsetz = (2.0f*z_num_ds - z_num)/2.0f;
+        const float offsety = (size_factor*y_num_ds - y_num)/2.0f;
+        const float offsetx = (size_factor*x_num_ds - x_num)/2.0f;
+        const float offsetz = (size_factor*z_num_ds - z_num)/2.0f;
 
 //#ifdef HAVE_OPENMP
 //#pragma omp parallel for default(shared)
 //#endif
+        float sum = 0;
         for (size_t z_ds = 0; z_ds < z_num_ds; ++z_ds) {
             for (size_t x_ds = 0; x_ds < x_num_ds; ++x_ds) {
                 for (size_t y_ds = 0; y_ds < y_num_ds; ++y_ds) {
 
                     float outValue = 0;
 
-                    for(size_t z = z_ds; z < std::min(z_num, z_ds+3); ++z) {
-                        for(size_t x = x_ds; x<std::min(x_num, x_ds+3); ++x) {
-                            for(size_t y = y_ds; y<std::min(y_num, y_ds+3); ++y) {
+                    for(size_t z = z_ds; z < std::min((float)z_num, z_ds+size_factor+1); ++z) {
+                        for(size_t x = x_ds; x<std::min((float)x_num, x_ds+size_factor+1); ++x) {
+                            for(size_t y = y_ds; y<std::min((float)y_num, y_ds+size_factor+1); ++y) {
 
                                 float ybegin = y+offsety;
                                 float xbegin = x+offsetx;
                                 float zbegin = z+offsetz;
 
-                                float overlapy = std::max(2.0f*y_ds, std::min(ybegin+1, 2.0f*y_ds+2)) - std::min(2.0f*y_ds+2, std::max(ybegin, 2.0f*y_ds));
-                                float overlapx = std::max(2.0f*x_ds, std::min(xbegin+1, 2.0f*x_ds+2)) - std::min(2.0f*x_ds+2, std::max(xbegin, 2.0f*x_ds));
-                                float overlapz = std::max(2.0f*z_ds, std::min(zbegin+1, 2.0f*z_ds+2)) - std::min(2.0f*z_ds+2, std::max(zbegin, 2.0f*z_ds));
+                                float overlapy = std::max(size_factor*y_ds, std::min(ybegin+1, size_factor*(y_ds+1))) - std::min(size_factor*(y_ds+1), std::max(ybegin, size_factor*y_ds));
+                                float overlapx = std::max(size_factor*x_ds, std::min(xbegin+1, size_factor*(x_ds+1))) - std::min(size_factor*(x_ds+1), std::max(xbegin, size_factor*x_ds));
+                                float overlapz = std::max(size_factor*z_ds, std::min(zbegin+1, size_factor*(z_ds+1))) - std::min(size_factor*(z_ds+1), std::max(zbegin, size_factor*z_ds));
 
                                 float factor = overlapy * overlapx * overlapz;
 
-                                outValue = reduce(outValue, factor * aInput.mesh[z*x_num*y_num + x*y_num + y]);
+                                outValue += factor * aInput.mesh[z*x_num*y_num + x*y_num + y];
                             }
                         }
                     }
 
-                    aOutput.mesh[z_ds*x_num_ds*y_num_ds + x_ds*y_num_ds + y_ds] = constant_operator(outValue);
+                    aOutput.mesh[z_ds*x_num_ds*y_num_ds + x_ds*y_num_ds + y_ds] = outValue; // / pow(size_factor, ndim);
+                    sum += outValue;
                 }
             }
         }
+
+        if(normalize) {
+            float factor = 1.0f / sum;
+            for (int i = 0; i < aOutput.mesh.size(); ++i) {
+                aOutput.mesh[i] *= factor;
+            }
+        }/* else {
+            float factor = 1.0f / pow(size_factor, ndim);
+            for (int i = 0; i < aOutput.mesh.size(); ++i) {
+                aOutput.mesh[i] *= factor;
+            }
+        } */
     }
 
 
@@ -512,9 +636,27 @@ public:
                                           ExtraParticleData<float>& test_particles,
                                           ExtraParticleData<S>& particles,
                                           ExtraParticleData<float>& part_tree,
-                                          PixelData<float> &stencil){
+                                          PixelData<float> &stencil,
+                                          bool normalize=true){
 
+        std::vector<PixelData<float>> stencil_vec;
 
+        int nstencils = apr.apr_access.level_max() - apr.apr_access.level_min() + 1;
+
+        stencil_vec.resize(nstencils);
+
+        PixelData<float> stencilCopy(stencil, true);
+        stencil_vec[0].swap(stencilCopy); // first stencil is a copy of the input stencil
+
+        // remaining stencils are downsampled versions of the input stencil
+        for(int level_delta = 1; level_delta<nstencils; ++level_delta) {
+            downsample_stencil_alt(stencil, stencil_vec[level_delta], level_delta, normalize, true);
+        }
+
+        create_test_particles_equiv(apr, apr_iterator, apr_tree_iterator, test_particles, particles, part_tree, stencil_vec);
+
+        /*
+        int stencil_counter = 0;
         for (uint64_t level_local = apr_iterator.level_max(); level_local >= apr_iterator.level_min(); --level_local) {
 
 
@@ -651,13 +793,12 @@ public:
             //std::string image_file_name = apr.parameters.input_dir + std::to_string(level_local) + "_by_level.tif";
             //TiffUtils::saveMeshAsTiff(image_file_name, by_level_recon);
 
+            stencil_counter++;
             if(stencil.mesh.size() > 1) {
 
                 PixelData<float> stencil_ds;
 
-                downsample_stencil_alt(stencil, stencil_ds,
-                                       [](const float &x, const float &y) -> float { return x + y; },
-                                       [&apr](const float &x) -> float { return x / pow(3, apr.apr_access.number_dimensions); }, true);
+                downsample_stencil_alt(stencil, stencil_ds, stencil_counter, true);
 
                 std::swap(stencil, stencil_ds);
             }
@@ -668,7 +809,7 @@ public:
         apr.interp_img(recon_standard, test_particles);
 
         TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/conv_recon_standard.tif",recon_standard);
-
+        */
     }
 
 

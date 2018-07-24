@@ -115,15 +115,16 @@ int main(int argc, char **argv) {
 
     std::vector<PixelData<float>> stencil_vec;
     stencil_vec.resize(2);
-    stencil_vec[0].init(stencil_shape[0], stencil_shape[1], stencil_shape[2], 0);//stencil_value);
+    //stencil_vec[0].init(stencil_shape[0], stencil_shape[1], stencil_shape[2], stencil_value);
 
+
+    stencil_vec[0].init(stencil_shape[0], stencil_shape[1], stencil_shape[2], 0);//stencil_value);
     stencil_vec[0].at(1,0,0) = -1;
     stencil_vec[0].at(0,1,0) = -1;
     stencil_vec[0].at(1,2,0) = -1;
     stencil_vec[0].at(2,1,0) = -1;
     stencil_vec[0].at(1,1,0) = 5;
 
-    //stencil_vec[1].init(stencil_shape[0], stencil_shape[1], stencil_shape[2], 1.0f);
 
     stencil_vec[1].init(1,1,1, 1.0f);
 
@@ -136,18 +137,17 @@ int main(int argc, char **argv) {
 
     APRFiltering filter_fns;
 
-    /*
+
     PixelData<float> stencil_ds;
-    filter_fns.downsample_stencil_alt(stencil_vec[0],
-                                      stencil_ds,
-                                      [](const float &x, const float &y) -> float { return x + y; },
-                                      [&apr](const float &x) -> float { return x / pow(2, apr.apr_access.number_dimensions); });
+    filter_fns.downsample_stencil_alt(stencil_vec[0], stencil_ds, 1, true);
 
     TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/stencil_ds_alt.tif", stencil_ds);
     TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/stencil_ds_alt_input.tif", stencil_vec[0]);
-    */
 
-    filter_fns.convolve_equivalent(apr, stencil_vec, apr.particles_intensities, part_sum_dense);
+
+    //filter_fns.convolve_equivalent(apr, stencil_vec, apr.particles_intensities, part_sum_dense);
+    filter_fns.convolve_ds_stencil(apr, stencil_vec[0], apr.particles_intensities, part_sum_dense, true);
+    //filter_fns.convolve(apr, stencil_vec[0], apr.particles_intensities, part_sum_dense, 0);
 
     PixelData<float> recon_img;
     PixelData<uint16_t> input_img;
@@ -175,16 +175,17 @@ int main(int argc, char **argv) {
     auto tree_iterator = apr.apr_tree.tree_iterator();
 
 
-    /*
+
     filter_fns.create_test_particles_ds_stencil(apr,
                                                 apr_iterator,
                                                 tree_iterator,
                                                 utest_particles,
                                                 apr.particles_intensities,
                                                 tree_data,
-                                                stencil_vec[0]);
-    */
+                                                stencil_vec[0],
+                                                false);
 
+    /*
     filter_fns.create_test_particles_equiv(apr,
                                            apr_iterator,
                                            tree_iterator,
@@ -192,7 +193,7 @@ int main(int argc, char **argv) {
                                            apr.particles_intensities,
                                            tree_data,
                                            stencil_vec);
-
+    */
 
     //Basic serial iteration over all particles
     for (unsigned int level = apr_iterator.level_min(); level <= apr_iterator.level_max(); ++level) {
