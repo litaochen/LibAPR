@@ -170,6 +170,13 @@ inline bool APRConverter<ImageType>::get_apr_method_from_file(APR<ImageType> &aA
 template<typename ImageType> template<typename T>
 bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>& input_image) {
 
+    if(par.check_input) {
+        if(!check_input_dimensions(input_image)) {
+            std::cout << "Input dimension check failed. Make sure the input image is filled in order x -> y -> z, or try using the option -swap_dimension" << std::endl;
+            return false;
+        }
+    }
+
     if( par.auto_parameters ) {
         auto_parameters(input_image);
     }
@@ -179,13 +186,6 @@ bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>&
     init_apr(aAPR, input_image);
 
     total_timer.start_timer("Total_pipeline_excluding_IO");
-
-    if(par.check_input) {
-        if(!check_input_dimensions(input_image)) {
-            std::cout << "Input dimension check failed. Make sure the input image is filled in order x -> y -> z, or try using the option -swap_dimension" << std::endl;
-            return false;
-        }
-    }
 
     ////////////////////////////////////////
     /// Memory allocation of variables
