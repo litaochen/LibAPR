@@ -51,6 +51,7 @@ public:
     template<typename T>
     bool get_apr_method_from_file(APR<ImageType> &aAPR, PixelData<T> inputImage);
 
+
 private:
     //get apr without setting parameters, and with an already loaded image.
 
@@ -157,7 +158,7 @@ inline bool APRConverter<ImageType>::get_apr_method_from_file(APR<ImageType> &aA
     }
 
 
-    auto_parameters(inputImage);
+    //auto_parameters(inputImage);
     method_timer.stop_timer();
 
     return get_apr_method(aAPR, inputImage);
@@ -167,7 +168,12 @@ inline bool APRConverter<ImageType>::get_apr_method_from_file(APR<ImageType> &aA
  * Main method for constructing the APR from an input image
  */
 template<typename ImageType> template<typename T>
-inline bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>& input_image) {
+bool APRConverter<ImageType>::get_apr_method(APR<ImageType> &aAPR, PixelData<T>& input_image) {
+
+    if( par.auto_parameters ) {
+        auto_parameters(input_image);
+    }
+
     apr = &aAPR; // in case it was called directly
 
     init_apr(aAPR, input_image);
