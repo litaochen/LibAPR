@@ -138,24 +138,29 @@ int main(int argc, char **argv) {
     APRFiltering filter_fns;
 
 
-    PixelData<float> stencil_ds;
-    filter_fns.downsample_stencil_alt(stencil_vec[0], stencil_ds, 1, true);
+    //PixelData<float> stencil_ds;
+    //filter_fns.downsample_stencil_alt(stencil_vec[0], stencil_ds, 1, true);
+    //TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/stencil_ds_alt.tif", stencil_ds);
+    //TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/stencil_ds_alt_input.tif", stencil_vec[0]);
 
-    TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/stencil_ds_alt.tif", stencil_ds);
-    TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/stencil_ds_alt_input.tif", stencil_vec[0]);
 
+    timer.start_timer("performing num_rep convolutions");
+    for(int rep=0; rep<num_rep; ++rep) {
+        //filter_fns.convolve_equivalent(apr, stencil_vec, apr.particles_intensities, part_sum_dense);
+        filter_fns.convolve_ds_stencil(apr, stencil_vec[0], apr.particles_intensities, part_sum_dense, true);
+        //filter_fns.convolve(apr, stencil_vec[0], apr.particles_intensities, part_sum_dense, 0);
+    }
+    timer.stop_timer();
+    std::cout << "num_rep = " << num_rep << std::endl;
 
-    //filter_fns.convolve_equivalent(apr, stencil_vec, apr.particles_intensities, part_sum_dense);
-    filter_fns.convolve_ds_stencil(apr, stencil_vec[0], apr.particles_intensities, part_sum_dense, true);
-    //filter_fns.convolve(apr, stencil_vec[0], apr.particles_intensities, part_sum_dense, 0);
 
     PixelData<float> recon_img;
     PixelData<uint16_t> input_img;
     apr.interp_img(recon_img, part_sum_dense);
     apr.interp_img(input_img, apr.particles_intensities);
 
-    TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/conv_recon.tif", recon_img);
-    TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/conv_input.tif", input_img);
+    //TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/conv_recon.tif", recon_img);
+    //TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/conv_input.tif", input_img);
 
 
     ExtraParticleData<float> tree_data;
@@ -174,8 +179,6 @@ int main(int argc, char **argv) {
     auto apr_iterator = apr.iterator();
     auto tree_iterator = apr.apr_tree.tree_iterator();
 
-
-
     filter_fns.create_test_particles_ds_stencil(apr,
                                                 apr_iterator,
                                                 tree_iterator,
@@ -183,7 +186,7 @@ int main(int argc, char **argv) {
                                                 apr.particles_intensities,
                                                 tree_data,
                                                 stencil_vec[0],
-                                                false);
+                                                true);
 
     /*
     filter_fns.create_test_particles_equiv(apr,

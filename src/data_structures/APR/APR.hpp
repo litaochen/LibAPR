@@ -47,6 +47,14 @@ public:
 
     inline uint64_t total_number_particles() const { return (apr_access).total_number_particles; }
 
+    inline uint64_t num_particles_per_level(const unsigned int level) {
+        if (level != level_min()) {
+            return apr_access.global_index_by_level_end[level] - apr_access.global_index_by_level_end[level - 1];
+        } else {
+            return apr_access.global_index_by_level_end[level] - apr_access.global_index_by_level_end[level - 1] + 1;
+        }
+    }
+
     ///////////////////////////////////
     ///
     /// APR Generation Methods (Calls members of the APRConverter class)
