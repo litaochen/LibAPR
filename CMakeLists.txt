@@ -265,11 +265,10 @@ endif(APR_INSTALL)
 if(APR_BUILD_EXAMPLES)
     message(STATUS "APR: Building examples")
     add_subdirectory(examples)
-endif(APR_BUILD_EXAMPLES)
 
-include_directories(src)
-message(STATUS "APR: GPUHACK Examples")
-add_subdirectory(gpuhack)
+    message(STATUS "APR: GPUHACK Examples")
+    add_subdirectory(gpuhack)
+endif(APR_BUILD_EXAMPLES)
 
 ###############################################################################
 # Tests
