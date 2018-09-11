@@ -36,6 +36,7 @@ public:
     float background_intensity_estimate = 0;
 
     bool auto_parameters = true;
+    bool full_resolution = false;
 
     bool normalized_input = false;
 

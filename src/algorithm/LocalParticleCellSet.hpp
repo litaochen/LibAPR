@@ -58,7 +58,7 @@ public:
     }
 
     template< typename T>
-    void compute_level_for_array(PixelData<T>& input, float k_factor, float rel_error) {
+    void compute_level_for_array(PixelData<T>& input, float k_factor, float rel_error, const bool full_resolution=false) {
         //
         //  Takes the sqrt of the grad vector to caluclate the magnitude
         //
@@ -66,11 +66,20 @@ public:
 
         const float mult_const = k_factor/rel_error;
 
-        #ifdef HAVE_OPENMP
-	    #pragma omp parallel for default(shared)
-        #endif
-        for (size_t i = 0; i < input.mesh.size(); ++i) {
-            input.mesh[i] = asmlog_2(input.mesh[i] * mult_const);
+        if(full_resolution) {
+#ifdef HAVE_OPENMP
+#pragma omp parallel for default(shared)
+#endif
+            for (size_t i = 0; i < input.mesh.size(); ++i) {
+                input.mesh[i] = 100000;
+            }
+        } else {
+#ifdef HAVE_OPENMP
+#pragma omp parallel for default(shared)
+#endif
+            for (size_t i = 0; i < input.mesh.size(); ++i) {
+                input.mesh[i] = asmlog_2(input.mesh[i] * mult_const);
+            }
         }
     }
 };

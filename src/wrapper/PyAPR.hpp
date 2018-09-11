@@ -129,6 +129,8 @@ public:
         input_img.init_from_mesh(buf.shape[1], buf.shape[0], buf.shape[2], ptr); // may lead to memory issues
 
         apr.get_apr(input_img);
+
+        apr.apr_access.l_min = 2;
     }
 
     /**
@@ -171,25 +173,148 @@ public:
         */
     }
 
-    /*
-    //TODO: use xtensor-python numpy array container?
-    py::array convolve_ds(py::array &input_features, py::array &weights, py::array bias, bool normalize) {
+    py::array get_levels() {
+        auto levels = new std::vector<float>;
+        levels->resize(apr.total_number_particles());
 
-        py::buffer_info buf = weights.request();
-        auto ptr = (float *)buf.ptr;
+        auto apr_iterator = apr.iterator();
 
-        std::cout << "weight shape: (" << buf.shape[0] << ", " << buf.shape[1] << ", " << buf.shape[2] << ", " << buf.shape[3] << ")" << std::endl;
+        for (unsigned int level = apr_iterator.level_min(); level <= apr_iterator.level_max(); ++level) {
+            int z = 0;
+            int x = 0;
 
-        std::cout << "weights(1, 0, 2, 2): " << ptr[indexat(1, 0, 2, 1, buf)] << std::endl;
+            const bool parallel_z = apr_iterator.spatial_index_z_max(level) > 1000;
+            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level) > 1000;
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_z)
+#endif
+            for (z = 0; z < apr_iterator.spatial_index_z_max(level); z++) {
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x) firstprivate(apr_iterator) if(parallel_x)
+#endif
+                for (x = 0; x < apr_iterator.spatial_index_x_max(level); ++x) {
+                    for (apr_iterator.set_new_lzx(level, z, x);
+                         apr_iterator.global_index() < apr_iterator.end_index;
+                         apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                        levels->data()[apr_iterator] = (float)apr_iterator.level();
+
+                    }
+                }
+            }
+        }
+
+        auto capsule = py::capsule(levels, [](void *levels) { delete reinterpret_cast<std::vector<int>*>(levels); });
+        return py::array(levels->size(), levels->data(), capsule);
+
+    }
+
+
+    void convolve_loop(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
 
         PyAPRFiltering filter_fns;
 
-        return filter_fns.convolve_ds_cnn(apr, input, weights, bias, normalize);
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
+
+        py::buffer_info input_buf = input_features.request();
+        py::buffer_info weights_buf = weights.request();
+        py::buffer_info bias_buf = bias.request();
+
+        auto weights_ptr = (float *) weights_buf.ptr;
+        auto bias_ptr = (float *) bias_buf.ptr;
+
+        int out_channels = weights_buf.shape[0];
+        int in_channels = weights_buf.shape[1];
+        int nstencils = weights_buf.shape[2];
+        int height = weights_buf.shape[3];
+        int width = weights_buf.shape[4];
+
+        std::vector<PixelData<float>> stencil_vec;
+        stencil_vec.resize(nstencils);
+
+        for(int out=0; out<out_channels; ++out) {
+
+            float b = bias_ptr[out];
+
+            for (int in = 0; in < in_channels; ++in) {
+
+                for(int n=0; n<nstencils; ++n) {
+
+                    stencil_vec[n].init(height, width, 1);
+
+                    int offset = out * in_channels * nstencils * width * height + in * nstencils * width * height + n * width * height;
+                    int idx = 0;
+
+                    for (int y = 0; y < height; ++y) {
+                        for (int x = 0; x < width; ++x) {
+                            //stencil_vec[n].at(y, x, 0) = weights_ptr[offset + idx];
+                            stencil_vec[n].mesh[idx] = weights_ptr[offset + idx];
+
+                            idx++;
+                        }
+                    }
+                }
+
+                filter_fns.convolve_equivalent_loop(apr, input_features, stencil_vec, b, output, out, in, batch_num, current_max_level);
+            }
+        }
+    }
+
+
+    void convolve_loop_backward(py::array &grad_output, py::array &input_features, py::array &weights, py::array &grad_input, py::array &grad_weights, py::array &grad_bias, int batch_num, int level_delta) {
+
+        PyAPRFiltering filter_fns;
+
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
+
+        py::buffer_info input_buf = input_features.request();
+        py::buffer_info weights_buf = weights.request();
+
+        auto weights_ptr = (float *) weights_buf.ptr;
+
+        int out_channels = weights_buf.shape[0];
+        int in_channels = weights_buf.shape[1];
+        int nstencils = weights_buf.shape[2];
+        int height = weights_buf.shape[3];
+        int width = weights_buf.shape[4];
+
+        std::vector<PixelData<float>> stencil_vec;
+        stencil_vec.resize(nstencils);
+
+        for(int out=0; out<out_channels; ++out) {
+
+            for (int in = 0; in < in_channels; ++in) {
+
+                for(int n=0; n<nstencils; ++n) {
+
+                    stencil_vec[n].init(height, width, 1);
+
+                    int offset = out * in_channels * nstencils * width * height + in * nstencils * width * height + n * width * height;
+                    int idx = 0;
+
+                    for (int y = 0; y < height; ++y) {
+                        for (int x = 0; x < width; ++x) {
+                            //stencil_vec[n].at(y, x, 0) = weights_ptr[offset + idx];
+                            stencil_vec[n].mesh[idx] = weights_ptr[offset + idx];
+
+                            idx++;
+                        }
+                    }
+                }
+
+                filter_fns.convolve_equivalent_loop_backward(apr, input_features, stencil_vec, grad_output, grad_input, grad_weights, grad_bias, out, in, batch_num, current_max_level, false);
+
+            }
+        }
 
     }
-     */
 
-    py::array convolve_ds_loop(py::array &input_features, py::array &weights, py::array &bias) {
+
+    //py::array
+    void convolve_ds_loop(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
 
         PyAPRFiltering filter_fns;
 
@@ -204,21 +329,6 @@ public:
         int in_channels = weights_buf.shape[1];
         int height = weights_buf.shape[2];
         int width = weights_buf.shape[3];
-
-        std::vector<ssize_t> outshape = {out_channels, input_buf.shape[1]};
-        py::array_t<float_t> output(outshape);
-
-        py::buffer_info output_buf = output.request(true);
-        auto out_ptr = (float *)output_buf.ptr;
-
-#ifdef HAVE_OPENMP
-#pragma omp parallel for default(shared)
-#endif
-        for(int i=0; i<output_buf.size; ++i) {
-            out_ptr[i] = 0.0f;
-        }
-
-        //PixelData<float> output(apr.total_number_particles()/*input_buf.shape[1]*/, weights_buf.shape[0], 1, 0); // nparticles x out_channels
 
         for(int out=0; out<out_channels; ++out) {
 
@@ -238,23 +348,19 @@ public:
                     }
                 }
 
-                filter_fns.convolve_ds_stencil_loop(apr, input_features, stencil, b, output, out, in);
+                filter_fns.convolve_ds_stencil_loop(apr, input_features, stencil, b, output, out, in, batch_num, level_delta);
 
             }
         }
-
-        return output;
-
-
     }
 
-    std::vector<py::array> convolve_ds_loop_backward(py::array &grad_output, py::array &input_features, py::array &weights, py::array &bias) {
+    //std::vector<py::array>
+    void convolve_ds_loop_backward(py::array &grad_output, py::array &input_features, py::array &weights, py::array &grad_input, py::array &grad_weights, py::array &grad_bias, int batch_num, int level_delta) {
 
         PyAPRFiltering filter_fns;
 
         py::buffer_info input_buf = input_features.request();
         py::buffer_info weights_buf = weights.request();
-        py::buffer_info bias_buf = bias.request();
 
         auto weights_ptr = (float *) weights_buf.ptr;
 
@@ -262,39 +368,6 @@ public:
         int in_channels = weights_buf.shape[1];
         int height = weights_buf.shape[2];
         int width = weights_buf.shape[3];
-
-        py::array_t<float_t> grad_weights(weights_buf.shape);
-        py::array_t<float_t> grad_bias(bias_buf.shape);
-        py::array_t<float_t> grad_input(input_buf.shape);
-
-        py::buffer_info grad_weights_buf = grad_weights.request(true);
-        auto grad_weights_ptr = (float *) grad_weights_buf.ptr;
-
-#ifdef HAVE_OPENMP
-#pragma omp parallel for default(shared)
-#endif
-        for(int i=0; i<grad_weights_buf.size; ++i) {
-            grad_weights_ptr[i] = 0.0f;
-        }
-
-        py::buffer_info grad_input_buf = grad_input.request(true);
-        auto grad_input_ptr = (float *) grad_input_buf.ptr;
-
-#ifdef HAVE_OPENMP
-#pragma omp parallel for default(shared)
-#endif
-        for(int i=0; i<grad_input_buf.size; ++i) {
-            grad_input_ptr[i] = 0.0f;
-        }
-
-        py::buffer_info grad_bias_buf = grad_bias.request(true);
-        auto grad_bias_ptr = (float *) grad_bias_buf.ptr;
-
-        for(int i=0; i<grad_bias_buf.size; ++i) {
-            grad_bias_ptr[i] = 0.0f;
-        }
-
-        //PixelData<float> output(apr.total_number_particles()/*input_buf.shape[1]*/, weights_buf.shape[0], 1, 0); // nparticles x out_channels
 
         for(int out=0; out<out_channels; ++out) {
 
@@ -312,15 +385,10 @@ public:
                     }
                 }
 
-                //uint64_t in_offset = in * apr.total_number_particles();
-
-                filter_fns.convolve_ds_stencil_loop_backward(apr, input_features, stencil, grad_output, grad_input, grad_weights, grad_bias, out, in);
+                filter_fns.convolve_ds_stencil_loop_backward(apr, input_features, stencil, grad_output, grad_input, grad_weights, grad_bias, out, in, batch_num, level_delta);
 
             }
         }
-
-        return {grad_input, grad_weights, grad_bias};
-
     }
 
     int total_num_particles() {
@@ -328,18 +396,220 @@ public:
     }
 
 
-    py::array max_pool(py::array &input_features) {
+    uint64_t compute_particles_after_maxpool(int level_delta) {
 
         PyAPRFiltering filter_fns;
 
-        //uint64_t outsize = apr.total_number_particles() - (1-pow(2.0f, -apr.apr_access.number_dimensions)) * apr.num_particles_per_level(apr.level_max());
+        /// Find the current maximum level using the shape of the input
+        unsigned int current_max_level = std::max(apr.level_max()-level_delta, apr.level_min());//filter_fns.find_max_level(apr, input_features, true);
+        apr.apr_tree.init(apr);
+        /// Find the number of particles of the output, which is the number of particles up to current_max_level-1 plus the
+        /// number of new particles at current_max_level-1
+        uint64_t number_parts_out = filter_fns.number_parts_at_level(apr, current_max_level-1);
+
+        return number_parts_out;
+    }
+
+    /**
+     * max pool operation where the indices of the maximum elements are stored for fast backpropagation. Provides
+     * a significant speedup during training and only a small slowdown of the forward pass.
+     *
+     * @param input_features
+     * @param output
+     * @param batch_num
+     * @param level_delta
+     * @param index_arr
+     */
+    void max_pool_store_idx(py::array &input_features, py::array &output, int batch_num, int level_delta, py::array &index_arr) {
+
+        APRTimer timer(false);
+        timer.start_timer("max pool forward (store idx)");
+
+        PyAPRFiltering filter_fns;
+
+        py::buffer_info input_buf = input_features.request();
+
+        //ssize_t batch_size = input_buf.shape[0];
+        ssize_t number_channels = input_buf.shape[1];
+
+        //std::cout << "apr min level: " << apr.level_min() << ", max level: " << apr.level_max() << std::endl;
+
+        /// Find the current maximum level using the shape of the input
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        unsigned int current_max_level = std::max(apr.level_max()-level_delta, apr.level_min()); //filter_fns.find_max_level(apr, input_features, true);
+        //apr.apr_tree.init(apr);
+
+        /// now perform the max pooling, one channel at a time
+        for( int channel = 0; channel < number_channels; ++channel) {
+            filter_fns.max_pool_loop_store_idx(apr, input_features, output, channel, current_max_level, batch_num, index_arr);
+        }
+        timer.stop_timer();
+    }
+
+
+    void max_pool(py::array &input_features, py::array &output, int batch_num, int level_delta) {
+
+        APRTimer timer(false);
+        timer.start_timer("max pool forward");
+
+        PyAPRFiltering filter_fns;
+
+        py::buffer_info input_buf = input_features.request();
+
+        //ssize_t batch_size = input_buf.shape[0];
+        ssize_t number_channels = input_buf.shape[1];
+
+        //std::cout << "apr min level: " << apr.level_min() << ", max level: " << apr.level_max() << std::endl;
+
+        /// Find the current maximum level using the shape of the input
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        unsigned int current_max_level = std::max(apr.level_max()-level_delta, apr.level_min()); //filter_fns.find_max_level(apr, input_features, true);
+        apr.apr_tree.init(apr);
+
+        /// now perform the max pooling, one channel at a time
+        for( int channel = 0; channel < number_channels; ++channel) {
+            filter_fns.max_pool_loop(apr, input_features, output, channel, current_max_level, batch_num);
+        }
+        timer.stop_timer();
+    }
+
+    //py::array
+    void max_pool_backward(py::array &grad_output, py::array &grad_input, py::array &input_features, int batch_num, int level_delta) {
+
+        APRTimer timer(false);
+        timer.start_timer("max pool backward");
+
+        PyAPRFiltering filter_fns;
+
+        py::buffer_info input_buf = input_features.request();
+
+        ssize_t number_channels = input_buf.shape[1];
+
+        /// Find the current maximum level using the shape of the input
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        unsigned int current_max_level = std::max(apr.level_max()-level_delta, apr.level_min());//filter_fns.find_max_level(apr, input_features, true);
+        apr.apr_tree.init(apr);
+
+        /// now perform the max pooling, one channel at a time
+        for( int channel = 0; channel < number_channels; ++channel) {
+            filter_fns.max_pool_loop_backward(apr, input_features, grad_input, grad_output, channel, current_max_level, batch_num);
+        }
+        timer.stop_timer();
+    }
+
+    void max_pool_backward_store_idx(py::array &grad_output, py::array &grad_input, py::array &max_indices) {
+
+        APRTimer timer(false);
+        timer.start_timer("max pool backward");
+
+        py::buffer_info grad_output_buf = grad_output.request();
+        py::buffer_info grad_input_buf = grad_input.request(true);
+        py::buffer_info index_buf = max_indices.request();
+
+        auto grad_output_ptr = (float *) grad_output_buf.ptr;
+        auto grad_input_ptr = (float *) grad_input_buf.ptr;
+        auto index_ptr = (int64_t *) index_buf.ptr;
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for default(shared)
+#endif
+        for(size_t i=0; i<index_buf.size; ++i) {
+            int64_t idx = index_ptr[i];
+            if( idx > -1 ) {
+                grad_input_ptr[idx] = grad_output_ptr[i];
+            }
+        }
+        timer.stop_timer();
 
     }
 
 
-        //inline int indexat(int out, int in, int width, int height, py::buffer_info &buf){
-    //    return out*buf.shape[1] * buf.shape[2] * buf.shape[3] + in * buf.shape[2] * buf.shape[3] + width * buf.shape[3] + height;
-    //}
+    void unpool(py::array &input, py::array &output, py::array &max_indices) {
+
+        APRTimer timer(false);
+        timer.start_timer("max pool backward");
+
+        py::buffer_info input_buf = input.request();
+        py::buffer_info output_buf = output.request(true);
+        py::buffer_info index_buf = max_indices.request();
+
+        auto input_ptr = (float *) input_buf.ptr;
+        auto output_ptr = (float *) output_buf.ptr;
+        auto index_ptr = (int64_t *) index_buf.ptr;
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for default(shared)
+#endif
+        for(size_t i=0; i<index_buf.size; ++i) {
+            int64_t idx = index_ptr[i];
+            if( idx >= 0 ) {
+                output_ptr[idx] = input_ptr[i];
+            }
+        }
+        timer.stop_timer();
+    }
+
+
+    void sample_multichannel_image(py::array &image) {
+
+        py::buffer_info image_buf = image.request();
+
+        auto image_ptr = (float *) image_buf.ptr;
+
+        size_t number_channels = image_buf.shape[0];
+        size_t x_num = image_buf.shape[1];
+        size_t y_num = image_buf.shape[2];
+
+        ///
+        apr.particles_intensities.data.resize(number_channels * apr.total_number_particles());
+
+
+        for(size_t channel = 0; channel < number_channels; ++channel) {
+            PixelData<float> image_temp(y_num, x_num, 1);
+
+            size_t offset = channel * x_num * y_num;
+
+            /// copy the current channel to a PixelData object. note that it is read in y -> x
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for default(shared)
+#endif
+            for(size_t idx = 0; idx < x_num * y_num; ++idx) {
+                image_temp.mesh[idx] = image_ptr[idx + offset];
+            }
+
+            std::vector<PixelData<float>> img_by_level;
+            downsamplePyramid(image_temp, img_by_level, apr.level_max(), apr.level_min());
+
+            auto apr_iterator = apr.iterator();
+
+            uint64_t parts_offset = channel * apr.total_number_particles();
+
+            for (unsigned int level = apr_iterator.level_min(); level <= apr_iterator.level_max(); ++level) {
+                int z = 0;
+                int x = 0;
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x) firstprivate(apr_iterator)
+#endif
+                //for (z = 0; z < apr_iterator.spatial_index_z_max(level); z++) {
+                for (x = 0; x < apr_iterator.spatial_index_x_max(level); ++x) {
+                    for (apr_iterator.set_new_lzx(level, z, x);
+                         apr_iterator.global_index() < apr_iterator.end_index;
+                         apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                        apr.particles_intensities.data[apr_iterator.global_index() + parts_offset] =
+                                img_by_level[level].at(apr_iterator.y(), apr_iterator.x(), 0);
+
+                    }
+                }
+                //}
+            }
+        }
+
+
+    }
+
 
     /**
      * compute a piecewise constant reconstruction using the provided particle intensities and return the image as a
@@ -348,86 +618,82 @@ public:
      * @param intensities   (numpy) array
      * @return              PyPixelData reconstruction (can be cast to numpy in python w/o copy)
      */
-    PyPixelData<T> recon_newints(py::array &intensities) {
+    PyPixelData<T> recon_newints(py::array &intensities, int level_delta=0) {
+
+        PyAPRFiltering filter_fns;
 
         PixelData<T> recon;
-        interp_img2(apr, recon, intensities);
+        filter_fns.interp_img_new_intensities(apr, recon, intensities, level_delta);
 
-        TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/recon_new_intensities.tif", recon);
+        //TiffUtils::saveMeshAsTiff("/Users/joeljonsson/Documents/STUFF/recon_new_intensities.tif", recon);
 
         return PyPixelData<T>(recon);
 
     }
 
+    template<typename S, typename R, typename C>
+    void downsample(const PixelData<float> &aInput, PixelData<S> &aOutput, R reduce, C constant_operator, bool aInitializeOutput = false) {
+        const size_t z_num = aInput.z_num;
+        const size_t x_num = aInput.x_num;
+        const size_t y_num = aInput.y_num;
 
-    /**
-     * Compute a piecewise constant reconstruction using the provided py::array of particle intensities
-     * @tparam U
-     * @tparam S
-     * @param apr
-     * @param img
-     * @param intensities
-     */
-    template<typename U,typename S>
-    void interp_img2(APR<S>& apr, PixelData<U>& img, py::array &intensities){
-        //
-        //  Bevan Cheeseman 2016
-        //
-        //  Takes in a APR and creates piece-wise constant image
+        // downsampled dimensions twice smaller (rounded up)
+        const size_t z_num_ds = ceil(z_num/2.0);
+        const size_t x_num_ds = ceil(x_num/2.0);
+        const size_t y_num_ds = ceil(y_num/2.0);
 
-        py::buffer_info buf = intensities.request();
-        auto intptr = (float *) buf.ptr;
+        APRTimer timer;
+        timer.verbose_flag = false;
 
-        auto apr_iterator = apr.iterator();
+        if (aInitializeOutput) {
+            timer.start_timer("downsample_initalize");
+            aOutput.init(y_num_ds, x_num_ds, z_num_ds);
+            timer.stop_timer();
+        }
 
-        img.init(apr.orginal_dimensions(0), apr.orginal_dimensions(1), apr.orginal_dimensions(2), 0);
-
-        int max_dim = std::max(std::max(apr.apr_access.org_dims[1], apr.apr_access.org_dims[0]), apr.apr_access.org_dims[2]);
-
-        int max_level = ceil(std::log2(max_dim));
-
-        for (unsigned int level = apr_iterator.level_min(); level <= apr_iterator.level_max(); ++level) {
-            int z = 0;
-            int x = 0;
-
-            const float step_size = pow(2, max_level - level);
-
-
+        timer.start_timer("downsample_loop");
 #ifdef HAVE_OPENMP
-#pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator)
+#pragma omp parallel for collapse(2)
 #endif
-            for (z = 0; z < apr_iterator.spatial_index_z_max(level); z++) {
-                for (x = 0; x < apr_iterator.spatial_index_x_max(level); ++x) {
-                    for (apr_iterator.set_new_lzx(level, z, x); apr_iterator.global_index() < apr_iterator.end_index;
-                         apr_iterator.set_iterator_to_particle_next_particle()) {
-                        //
-                        //  Parallel loop over level
-                        //
+        for (size_t z = 0; z < z_num_ds; ++z) {
+            for (size_t x = 0; x < x_num_ds; ++x) {
 
-                        int dim1 = apr_iterator.y() * step_size;
-                        int dim2 = apr_iterator.x() * step_size;
-                        int dim3 = apr_iterator.z() * step_size;
+                // shifted +1 in original inMesh space
+                const int64_t shx = std::min(2*x + 1, x_num - 1);
+                const int64_t shz = std::min(2*z + 1, z_num - 1);
 
-                        float temp_int;
-                        //add to all the required rays
+                const ArrayWrapper<float> &inMesh = aInput.mesh;
+                ArrayWrapper<S> &outMesh = aOutput.mesh;
 
-                        temp_int = intptr[apr_iterator.global_index()];
-
-                        const int offset_max_dim1 = std::min((int) img.y_num, (int) (dim1 + step_size));
-                        const int offset_max_dim2 = std::min((int) img.x_num, (int) (dim2 + step_size));
-                        const int offset_max_dim3 = std::min((int) img.z_num, (int) (dim3 + step_size));
-
-                        for (int64_t q = dim3; q < offset_max_dim3; ++q) {
-
-                            for (int64_t k = dim2; k < offset_max_dim2; ++k) {
-                                for (int64_t i = dim1; i < offset_max_dim1; ++i) {
-                                    img.mesh[i + (k) * img.y_num + q * img.y_num * img.x_num] = temp_int;
-                                }
-                            }
-                        }
-                    }
+                for (size_t y = 0; y < y_num_ds; ++y) {
+                    const int64_t shy = std::min(2*y + 1, y_num - 1);
+                    const int64_t idx = z * x_num_ds * y_num_ds + x * y_num_ds + y;
+                    outMesh[idx] =  constant_operator(
+                            reduce(reduce(reduce(reduce(reduce(reduce(reduce(        // inMesh coordinates
+                                    inMesh[2*z * x_num * y_num + 2*x * y_num + 2*y],  // z,   x,   y
+                                    inMesh[2*z * x_num * y_num + 2*x * y_num + shy]), // z,   x,   y+1
+                                                                      inMesh[2*z * x_num * y_num + shx * y_num + 2*y]), // z,   x+1, y
+                                                               inMesh[2*z * x_num * y_num + shx * y_num + shy]), // z,   x+1, y+1
+                                                        inMesh[shz * x_num * y_num + 2*x * y_num + 2*y]), // z+1, x,   y
+                                                 inMesh[shz * x_num * y_num + 2*x * y_num + shy]), // z+1, x,   y+1
+                                          inMesh[shz * x_num * y_num + shx * y_num + 2*y]), // z+1, x+1, y
+                                   inMesh[shz * x_num * y_num + shx * y_num + shy])  // z+1, x+1, y+1
+                    );
                 }
             }
+        }
+        timer.stop_timer();
+    }
+
+    void downsamplePyramid(PixelData<float> &original_image, std::vector<PixelData<float>> &downsampled, size_t l_max, size_t l_min) {
+        downsampled.resize(l_max + 1); // each level is kept at same index
+        downsampled.back().swap(original_image); // put original image at l_max index
+
+        // calculate downsampled in range (l_max, l_min]
+        auto sum = [](const float x, const float y) -> float { return x + y; };
+        auto divide_by_8 = [](const float x) -> float { return x/8.0; };
+        for (size_t level = l_max; level > l_min; --level) {
+            downsample(downsampled[level], downsampled[level - 1], sum, divide_by_8, true);
         }
     }
 
@@ -447,11 +713,20 @@ void AddPyAPR(pybind11::module &m, const std::string &aTypeString) {
             .def("set_parameters", &AprType::set_parameters, "Set parameters for APR conversion")
             .def("get_apr_from_array", &AprType::get_apr_from_array, "Construct APR from input array (no copy)")
             .def("get_apr_from_file", &AprType::get_apr_from_file, "Construct APR from input .tif image")
-            .def("get_intensities", &AprType::get_intensities, "return the particle intensities as buffer_info")
+            .def("get_intensities", &AprType::get_intensities, "return the particle intensities as a python array")
+            .def("get_levels", &AprType::get_levels, "return the particle levels as a python array")
             .def("convolve_ds_loop", &AprType::convolve_ds_loop, "convolution with stencil downsampling")
             .def("convolve_ds_loop_backward", &AprType::convolve_ds_loop_backward, "backpropagation through convolution with stencil downsampling")
+            .def("convolve_loop", &AprType::convolve_loop, "convolution with possibly different stencils per level")
+            .def("convolve_loop_backward", &AprType::convolve_loop_backward, "backpropagation through convolve_loop")
             .def("recon", &AprType::recon_newints, "recon with given intensities")
-            .def("nparticles", &AprType::total_num_particles, "return number of particles");
+            .def("max_pool", &AprType::max_pool, "max pool downsampling of the maximum level particles")
+            .def("max_pool_store_idx", &AprType::max_pool_store_idx, "max pool downsampling, storing indices for fast backward pass")
+            .def("max_pool_backward", &AprType::max_pool_backward, "backpropagation through max pooling")
+            .def("max_pool_backward_store_idx", &AprType::max_pool_backward_store_idx, "backprop max pool with stored indices")
+            .def("nparticles", &AprType::total_num_particles, "return number of particles")
+            .def("number_particles_after_maxpool", &AprType::compute_particles_after_maxpool, "computes the number of particles in the output of max_pool")
+            .def("sample_channels", &AprType::sample_multichannel_image, "samples each channel of the input image separately");
 }
 
 #endif //LIBAPR_PYAPR_HPP

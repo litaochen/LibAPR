@@ -52,7 +52,9 @@ private:
 
     void initialize_apr_tree(APR<ImageType>& apr, bool type_full = false) {
 
-        APRTimer timer(true);
+        APRTimer timer(false);
+
+        const int parallel_th = 1000;
 
         auto apr_iterator = apr.iterator();
 
@@ -92,10 +94,17 @@ private:
             int z = 0;
             int x = 0;
             if (level < (apr.level_max())) {
-                #ifdef HAVE_OPENMP
-                #pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator)
-                #endif
+
+                const bool parallel_z = apr_iterator.spatial_index_z_max(level) > parallel_th;
+                const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level) > parallel_th;
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_z)
+#endif
                 for ( z = 0; z < apr_iterator.spatial_index_z_max(level); z++) {
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_x)
+#endif
                     for ( x = 0; x < apr_iterator.spatial_index_x_max(level); ++x) {
                         for (apr_iterator.set_new_lzx(level, z, x);
                              apr_iterator.global_index() < apr_iterator.end_index;
@@ -130,10 +139,17 @@ private:
                 }
             }
             else {
-                #ifdef HAVE_OPENMP
-                #pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator)
-                #endif
+
+                const bool parallel_z = apr_iterator.spatial_index_z_max(level-1) > parallel_th;
+                const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level-1) > parallel_th;
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_z)
+#endif
                 for ( z = 0; z < apr_iterator.spatial_index_z_max(level-1); z++) {
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_x)
+#endif
                     for ( x = 0; x < apr_iterator.spatial_index_x_max(level-1); ++x) {
                         for (apr_iterator.set_new_lzx(level, 2*z, 2*x);
                              apr_iterator.global_index() < apr_iterator.end_index;

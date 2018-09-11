@@ -43,6 +43,7 @@ inline void LocalIntensityScale::rescale_var_and_threshold(PixelData<T> &var, co
         if (rescaled < par.sigma_th) {
             rescaled = (rescaled < par.sigma_th_max) ? max_th : par.sigma_th;
         }
+
         var.mesh[i] = rescaled;
     }
 }
