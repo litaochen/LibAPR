@@ -365,6 +365,222 @@ public:
     }
 
 
+
+    template<typename ImageType, typename T>
+    void convolve_equivalent_loop_unrolled(APR<ImageType> &apr, py::array &input_intensities, const std::vector<PixelData<T>>& stencil_vec, float bias, py::array &output, int out_channel, int in_channel, int batch_num, int current_max_level) {
+
+        APRTimer timer(false);
+
+        const int parallel_th = 1;
+
+        py::buffer_info input_buf = input_intensities.request();
+
+        //int batch_size = input_buf.shape[0];
+        int number_in_channels = input_buf.shape[1];
+        int nparticles = input_buf.shape[2];
+
+        uint64_t in_offset = batch_num * number_in_channels * nparticles + in_channel * nparticles;
+
+        /**** initialize and fill the apr tree ****/
+        timer.start_timer("init tree");
+
+        ExtraParticleData<float> tree_data;
+        apr.apr_tree.init(apr);
+
+        timer.stop_timer();
+
+        //unsigned int current_max_level = find_max_level(apr, input_intensities, false);
+
+        timer.start_timer("fill tree");
+        fill_tree_mean_py(apr, apr.apr_tree, input_intensities, tree_data, in_offset, current_max_level);
+        timer.stop_timer();
+
+        /*** iterators for accessing apr data ***/
+        auto apr_iterator = apr.iterator();
+        auto tree_iterator = apr.apr_tree.tree_iterator();
+
+        py::buffer_info output_buf = output.request(true);
+        auto output_ptr = (float *) output_buf.ptr;
+
+        uint64_t out_offset = batch_num * output_buf.shape[1] * output_buf.shape[2] + out_channel * output_buf.shape[2];
+        int stencil_counter = 0;
+
+        for (int level = current_max_level; level >= apr_iterator.level_min(); --level) {
+
+            //PixelData<float> stencil(stencil_vec[stencil_counter], true);
+
+            const std::vector<int> stencil_shape = {(int) stencil_vec[stencil_counter].y_num,
+                                                    (int) stencil_vec[stencil_counter].x_num,
+                                                    (int) stencil_vec[stencil_counter].z_num};
+            const std::vector<int> stencil_half = {(stencil_shape[0] - 1) / 2,
+                                                   (stencil_shape[1] - 1) / 2,
+                                                   (stencil_shape[2] - 1) / 2};
+
+            // assert stencil_shape compatible with apr org_dims?
+
+            unsigned int z = 0;
+            unsigned int x = 0;
+
+            const int z_num = apr_iterator.spatial_index_z_max(level);
+
+            const int y_num_m = (apr.apr_access.org_dims[0] > 1) ? apr_iterator.spatial_index_y_max(level) +
+                                                                   stencil_shape[0] - 1 : 1;
+            const int x_num_m = (apr.apr_access.org_dims[1] > 1) ? apr_iterator.spatial_index_x_max(level) +
+                                                                   stencil_shape[1] - 1 : 1;
+
+            PixelData<float> temp_vec;
+            temp_vec.init(y_num_m,
+                          x_num_m,
+                          stencil_shape[2],
+                          0); //zero padded boundaries
+
+
+            //initial condition
+            for (int padd = 0; padd < stencil_half[2]; ++padd) {
+                update_dense_array2(level,
+                                    padd,
+                                    apr,
+                                    apr_iterator,
+                                    tree_iterator,
+                                    tree_data,
+                                    temp_vec,
+                                    input_intensities,
+                                    stencil_shape,
+                                    stencil_half,
+                                    in_offset);
+            }
+
+            for (z = 0; z < apr.spatial_index_z_max(level); ++z) {
+
+                if (z < (z_num - stencil_half[2])) {
+                    //update the next z plane for the access
+                    timer.start_timer("update_dense_array");
+                    update_dense_array2(level, z + stencil_half[2], apr, apr_iterator, tree_iterator, tree_data,
+                                        temp_vec, input_intensities, stencil_shape, stencil_half, in_offset);
+                    timer.stop_timer();
+                } else {
+                    //padding
+                    uint64_t index = temp_vec.x_num * temp_vec.y_num * ((z + stencil_half[2]) % stencil_shape[2]);
+                    timer.start_timer("padding");
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(static) private(x)
+#endif
+                    for (x = 0; x < temp_vec.x_num; ++x) {
+                        std::fill(temp_vec.mesh.begin() + index + (x + 0) * temp_vec.y_num,
+                                  temp_vec.mesh.begin() + index + (x + 1) * temp_vec.y_num, 0);
+                    }
+                    timer.stop_timer();
+                }
+
+                //std::string fileName = "/Users/joeljonsson/Documents/STUFF/temp_vec_lvl" + std::to_string(level) + ".tif";
+                //TiffUtils::saveMeshAsTiff(fileName, temp_vec);
+
+                const bool parallelize = apr_iterator.spatial_index_x_max(level) > parallel_th;
+
+                /// Compute convolution output at apr particles
+                timer.start_timer("convolve apr particles");
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x) firstprivate(apr_iterator) if(parallelize)
+#endif
+                for (x = 0; x < apr.spatial_index_x_max(level); ++x) {
+                    for (apr_iterator.set_new_lzx(level, z, x);
+                         apr_iterator.global_index() < apr_iterator.end_index;
+                         apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                        //float neigh_sum = 0;
+                        //int counter = 0; //stencil_vec[stencil_counter].mesh.size() - 1;
+
+                        //const int k = apr_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                        //const int i = x + stencil_half[1];
+
+                        //compute the stencil
+                /*
+                        //for (int l = -stencil_half[2]; l < stencil_half[2] + 1; ++l) { //3D not yet supported
+                        for (int q = -stencil_half[1]; q < stencil_half[1] + 1; ++q) {
+                            for (int w = -stencil_half[0]; w < stencil_half[0] + 1; ++w) {
+                                //neigh_sum += (stencil_vec[stencil_counter].mesh[counter] *
+                                //              temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]));
+                                //counter++;
+
+                                neigh_sum += stencil_vec[stencil_counter].mesh[counter] * temp_vec.at(k+w, i+q, 0);
+                                counter++;
+                            }
+                        }
+                        //}
+               */
+
+                        //const int k = apr_iterator.y();
+                        //const int i = apr_iterator.x();
+
+                        float neigh_sum = temp_vec.at(apr_iterator.y(),   x, 0)   * stencil_vec[stencil_counter].mesh[0] +
+                                          temp_vec.at(apr_iterator.y()+1, x, 0)   * stencil_vec[stencil_counter].mesh[1] +
+                                          temp_vec.at(apr_iterator.y()+2, x, 0)   * stencil_vec[stencil_counter].mesh[2] +
+                                          temp_vec.at(apr_iterator.y(),   x+1, 0) * stencil_vec[stencil_counter].mesh[3] +
+                                          temp_vec.at(apr_iterator.y()+1, x+1, 0) * stencil_vec[stencil_counter].mesh[4] +
+                                          temp_vec.at(apr_iterator.y()+2, x+1, 0) * stencil_vec[stencil_counter].mesh[5] +
+                                          temp_vec.at(apr_iterator.y(),   x+2, 0) * stencil_vec[stencil_counter].mesh[6] +
+                                          temp_vec.at(apr_iterator.y()+1, x+2, 0) * stencil_vec[stencil_counter].mesh[7] +
+                                          temp_vec.at(apr_iterator.y()+2, x+2, 0) * stencil_vec[stencil_counter].mesh[8];
+
+                        if(in_channel == number_in_channels-1) {
+                            neigh_sum += bias;
+                        }
+
+                        output_ptr[out_offset + apr_iterator.global_index()] += neigh_sum;
+
+                    }//y, pixels/columns (apr)
+                }//x , rows (apr)
+
+                timer.stop_timer();
+
+                /// if there are downsampled values, we need to use the tree iterator for those outputs
+                if(level == current_max_level && current_max_level < apr.level_max()) {
+
+                    timer.start_timer("convolve tree particles");
+
+                    int64_t tree_offset = compute_tree_offset(apr, level, false);
+
+                    const bool parallelize = tree_iterator.spatial_index_x_max(level) > parallel_th;
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x) firstprivate(tree_iterator) if(parallelize)
+#endif
+                    for (x = 0; x < tree_iterator.spatial_index_x_max(level); ++x) {
+                        for (tree_iterator.set_new_lzx(level, z, x);
+                             tree_iterator.global_index() < tree_iterator.end_index;
+                             tree_iterator.set_iterator_to_particle_next_particle()) {
+
+                            float neigh_sum = temp_vec.at(tree_iterator.y(),   x, 0)   * stencil_vec[stencil_counter].mesh[0] +
+                                              temp_vec.at(tree_iterator.y()+1, x, 0)   * stencil_vec[stencil_counter].mesh[1] +
+                                              temp_vec.at(tree_iterator.y()+2, x, 0)   * stencil_vec[stencil_counter].mesh[2] +
+                                              temp_vec.at(tree_iterator.y(),   x+1, 0) * stencil_vec[stencil_counter].mesh[3] +
+                                              temp_vec.at(tree_iterator.y()+1, x+1, 0) * stencil_vec[stencil_counter].mesh[4] +
+                                              temp_vec.at(tree_iterator.y()+2, x+1, 0) * stencil_vec[stencil_counter].mesh[5] +
+                                              temp_vec.at(tree_iterator.y(),   x+2, 0) * stencil_vec[stencil_counter].mesh[6] +
+                                              temp_vec.at(tree_iterator.y()+1, x+2, 0) * stencil_vec[stencil_counter].mesh[7] +
+                                              temp_vec.at(tree_iterator.y()+2, x+2, 0) * stencil_vec[stencil_counter].mesh[8];
+
+                            if (in_channel == number_in_channels - 1) {
+                                neigh_sum += bias;
+                            }
+
+                            output_ptr[out_offset + tree_iterator.global_index() + tree_offset] += neigh_sum;
+
+                        }//y, pixels/columns (tree)
+                    }//x, rows (tree)
+                    timer.stop_timer();
+                } //if
+
+            }//z
+
+            // Use the next stencil (if available). The last supplied stencil will be used for all remaining levels.
+            stencil_counter = std::min(stencil_counter + 1, (int) stencil_vec.size() - 1);
+
+        }//levels
+        //return output;
+    }
+
+
     template<typename ImageType>
     void convolve_ds_stencil_loop(APR<ImageType> &apr,
                                   py::array &particle_intensities,
@@ -1377,6 +1593,937 @@ public:
 
     template<typename ImageType, typename T>
     void convolve_equivalent_loop_backward(APR<ImageType> &apr, py::array &input_intensities, const std::vector<PixelData<T>>& stencil_vec, py::array &grad_output, py::array &grad_input, py::array &grad_weight, py::array &grad_bias, int out_channel, int in_channel, int batch_num, unsigned int current_max_level, const bool ds_stencil) {
+
+        APRTimer timer(false);
+        //output_intensities.resize(input_intensities.size());
+
+        const int parallel_th = 1;
+
+        py::buffer_info grad_input_buf = grad_input.request();
+        py::buffer_info grad_output_buf = grad_output.request();
+
+        uint64_t out_offset = batch_num * grad_output_buf.shape[1] * grad_output_buf.shape[2] + out_channel * grad_output_buf.shape[2];
+        uint64_t in_offset = batch_num * grad_input_buf.shape[1] * grad_input_buf.shape[2] + in_channel * grad_input_buf.shape[2];
+
+        //unsigned int current_max_level = find_max_level(apr, input_intensities, false);
+
+        /**** initialize and fill the apr tree ****/
+        apr.apr_tree.init(apr);
+        ExtraParticleData<float> tree_data;
+        fill_tree_mean_py(apr, apr.apr_tree, input_intensities, tree_data, in_offset, current_max_level);
+
+        ExtraParticleData<float> tree_data_dO;
+        fill_tree_mean_py(apr, apr.apr_tree, grad_output, tree_data_dO, out_offset, current_max_level);
+
+        /*** initialize a temporary apr tree for the input gradients ***/
+        ExtraParticleData<float> grad_tree_temp;
+
+        grad_tree_temp.data.resize(tree_data.data.size(), 0.0f);
+
+        /*** iterators for accessing apr data ***/
+        auto apr_iterator = apr.iterator();
+        auto tree_iterator = apr.apr_tree.tree_iterator();
+
+        auto grad_output_ptr = (float *) grad_output_buf.ptr;
+
+        int stencil_counter = 0;
+
+        int batch_size = grad_input_buf.shape[0];
+        float d_bias = 0;
+
+        for (int level = current_max_level; level >= apr_iterator.level_min(); --level) {
+
+            //PixelData<float> stencil(stencil_vec[stencil_counter], true);
+
+            const std::vector<int> stencil_shape = {(int) stencil_vec[stencil_counter].y_num,
+                                                    (int) stencil_vec[stencil_counter].x_num,
+                                                    (int) stencil_vec[stencil_counter].z_num};
+            const std::vector<int> stencil_half = {(stencil_shape[0] - 1) / 2, (stencil_shape[1] - 1) / 2,
+                                                   (stencil_shape[2] - 1) / 2};
+
+            // assert stencil_shape compatible with apr org_dims?
+
+            unsigned int z = 0;
+            unsigned int x = 0;
+
+            const int z_num = apr_iterator.spatial_index_z_max(level);
+
+            const int y_num_m = (apr.apr_access.org_dims[0] > 1) ? apr_iterator.spatial_index_y_max(level) +
+                                                                   stencil_shape[0] - 1 : 1;
+            const int x_num_m = (apr.apr_access.org_dims[1] > 1) ? apr_iterator.spatial_index_x_max(level) +
+                                                                   stencil_shape[1] - 1 : 1;
+
+
+            PixelData<float> temp_vec;
+            temp_vec.init(y_num_m, x_num_m, stencil_shape[2], 0); //zero padded boundaries
+
+            PixelData<float> temp_vec_di;
+            temp_vec_di.init(y_num_m, x_num_m, stencil_shape[2], 0);
+
+            PixelData<float> temp_vec_dO;
+            temp_vec_dO.init(y_num_m, x_num_m, stencil_shape[2], 0);
+
+            PixelData<float> temp_vec_dw;
+            int num_threads = 1;
+#ifdef HAVE_OPENMP
+            num_threads = omp_get_max_threads();
+#endif
+            //std::cout << "OMP MAX THREADS: " << num_threads << std::endl;
+
+            temp_vec_dw.init(stencil_shape[0], stencil_shape[1], num_threads, 0);
+
+
+            //initial condition
+            for (int padd = 0; padd < stencil_half[2]; ++padd) {
+                update_dense_array2(level, padd, apr, apr_iterator, tree_iterator, tree_data, temp_vec,
+                                    input_intensities, stencil_shape, stencil_half, in_offset);
+
+                update_dense_array2(level, padd, apr, apr_iterator, tree_iterator, tree_data_dO, temp_vec_dO,
+                                    grad_output, stencil_shape, stencil_half, out_offset);
+            }
+
+            for (z = 0; z < apr.spatial_index_z_max(level); ++z) {
+
+                if (z < (z_num - stencil_half[2])) {
+                    //update the next z plane for the access
+                    update_dense_array2(level, z + stencil_half[2], apr, apr_iterator, tree_iterator, tree_data,
+                                        temp_vec, input_intensities, stencil_shape, stencil_half, in_offset);
+
+                    update_dense_array2(level, z + stencil_half[2], apr, apr_iterator, tree_iterator, tree_data_dO,
+                                        temp_vec_dO, grad_output, stencil_shape, stencil_half, out_offset);
+                } else {
+                    //padding
+                    uint64_t index = temp_vec.x_num * temp_vec.y_num * ((z + stencil_half[2]) % stencil_shape[2]);
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(static) private(x)
+#endif
+                    for (x = 0; x < temp_vec.x_num; ++x) {
+                        std::fill(temp_vec.mesh.begin() + index + (x + 0) * temp_vec.y_num,
+                                  temp_vec.mesh.begin() + index + (x + 1) * temp_vec.y_num, 0);
+
+                        std::fill(temp_vec_dO.mesh.begin() + index + (x + 0) * temp_vec_dO.y_num,
+                                  temp_vec_dO.mesh.begin() + index + (x + 1) * temp_vec_dO.y_num, 0);
+                    }
+                }
+
+                //std::string fileName = "/Users/joeljonsson/Documents/STUFF/temp_vec_dO_lvl" + std::to_string(level) + ".tif";
+                //TiffUtils::saveMeshAsTiff(fileName, temp_vec_dO);
+
+                const bool parallelize = apr.spatial_index_x_max(level) > parallel_th;
+
+                timer.start_timer("BACKWARD CONVOLUTION APR PARTICLES");
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x, z) firstprivate(apr_iterator) reduction(+ : d_bias) if(parallelize)
+#endif
+                for (x = 0; x < apr.spatial_index_x_max(level); ++x) {
+                    int thread_id = 0;
+
+#ifdef HAVE_OPENMP
+                    thread_id = omp_get_thread_num();
+#endif
+
+                    for (apr_iterator.set_new_lzx(level, z, x);
+                         apr_iterator.global_index() < apr_iterator.end_index;
+                         apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                        //const int k = apr_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                        //const int i = x + stencil_half[1];
+
+                        //compute the stencil
+
+                        float dO = grad_output_ptr[out_offset + apr_iterator.global_index()];
+
+                        d_bias += dO;
+
+                        //int counter = 0; //stencil_vec[stencil_counter].mesh.size() - 1;
+                        int w_offset = thread_id * temp_vec_dw.x_num * temp_vec_dw.y_num;
+
+                        uint64_t idx = apr_iterator.y() + apr_iterator.x() * temp_vec_di.y_num;
+
+                        temp_vec_di.mesh[idx] += temp_vec_dO.at(apr_iterator.y(), apr_iterator.x(), 0) * stencil_vec[stencil_counter].mesh[8] +
+                                                 temp_vec_dO.at(apr_iterator.y()+1, apr_iterator.x(), 0) * stencil_vec[stencil_counter].mesh[7] +
+                                                 temp_vec_dO.at(apr_iterator.y()+2, apr_iterator.x(), 0) * stencil_vec[stencil_counter].mesh[6] +
+                                                 temp_vec_dO.at(apr_iterator.y(), apr_iterator.x()+1, 0) * stencil_vec[stencil_counter].mesh[5] +
+                                                 temp_vec_dO.at(apr_iterator.y()+1, apr_iterator.x()+1, 0) * stencil_vec[stencil_counter].mesh[4] +
+                                                 temp_vec_dO.at(apr_iterator.y()+2, apr_iterator.x()+1, 0) * stencil_vec[stencil_counter].mesh[3] +
+                                                 temp_vec_dO.at(apr_iterator.y(), apr_iterator.x()+2, 0) * stencil_vec[stencil_counter].mesh[2] +
+                                                 temp_vec_dO.at(apr_iterator.y()+1, apr_iterator.x()+2, 0) * stencil_vec[stencil_counter].mesh[1] +
+                                                 temp_vec_dO.at(apr_iterator.y()+2, apr_iterator.x()+2, 0) * stencil_vec[stencil_counter].mesh[0];
+
+                        /*
+                        temp_vec_di.at(apr_iterator.y(), apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[0];
+                        temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[1];
+                        temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[2];
+
+                        temp_vec_di.at(apr_iterator.y(), apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[3];
+                        temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[4];
+                        temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[5];
+
+                        temp_vec_di.at(apr_iterator.y(), apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[6];
+                        temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[7];
+                        temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[8];
+                        */
+
+                        temp_vec_dw.mesh[w_offset] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x(), 0);
+                        temp_vec_dw.mesh[w_offset+1] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x(), 0);
+                        temp_vec_dw.mesh[w_offset+2] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x(), 0);
+
+                        temp_vec_dw.mesh[w_offset+3] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x()+1, 0);
+                        temp_vec_dw.mesh[w_offset+4] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x()+1, 0);
+                        temp_vec_dw.mesh[w_offset+5] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x()+1, 0);
+
+                        temp_vec_dw.mesh[w_offset+6] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x()+2, 0);
+                        temp_vec_dw.mesh[w_offset+7] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x()+2, 0);
+                        temp_vec_dw.mesh[w_offset+8] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x()+2, 0);
+
+                    }//y, pixels/columns
+                } //ix
+/*
+                for(x = number_chunks*chunk_distance; x<apr.spatial_index_x_max(level); ++x) {
+                    for (apr_iterator.set_new_lzx(level, z, x);
+                         apr_iterator.global_index() < apr_iterator.end_index;
+                         apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                        //const int k = apr_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                        //const int i = x + stencil_half[1];
+
+                        //compute the stencil
+
+                        float dO = grad_output_ptr[out_offset + apr_iterator.global_index()];
+
+                        //grad_output_ptr[out_offset + apr_iterator.global_index()] = 0.0f;
+                        d_bias += dO;
+
+                        int counter = 0; //stencil_vec[stencil_counter].mesh.size() - 1;
+
+                        temp_vec_di.at(apr_iterator.y(), apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[0];
+                        temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[1];
+                        temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[2];
+
+                        temp_vec_di.at(apr_iterator.y(), apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[3];
+                        temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[4];
+                        temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[5];
+
+                        temp_vec_di.at(apr_iterator.y(), apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[6];
+                        temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[7];
+                        temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[8];
+
+
+                        temp_vec_dw.mesh[0] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x(), 0);
+                        temp_vec_dw.mesh[1] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x(), 0);
+                        temp_vec_dw.mesh[2] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x(), 0);
+
+                        temp_vec_dw.mesh[3] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x()+1, 0);
+                        temp_vec_dw.mesh[4] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x()+1, 0);
+                        temp_vec_dw.mesh[5] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x()+1, 0);
+
+                        temp_vec_dw.mesh[6] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x()+2, 0);
+                        temp_vec_dw.mesh[7] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x()+2, 0);
+                        temp_vec_dw.mesh[8] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x()+2, 0);
+                    }//y, pixels/columns
+                }
+          */
+                timer.stop_timer();
+/*
+                /// Loop over APR particles
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x) firstprivate(apr_iterator) reduction(+ : d_bias)
+#endif
+                for (x = 0; x < apr.spatial_index_x_max(level); ++x) {
+                    for (apr_iterator.set_new_lzx(level, z, x);
+                         apr_iterator.global_index() < apr_iterator.end_index;
+                         apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                        int counter = 0;
+
+                        const int k = apr_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                        const int i = x + stencil_half[1];
+
+                        //compute the stencil
+
+                        float dO = grad_output_ptr[out_offset + apr_iterator.global_index()];
+
+                        d_bias += dO;
+
+                        for (int l = -stencil_half[2]; l < stencil_half[2] + 1; ++l) {
+                            for (int q = -stencil_half[1]; q < stencil_half[1] + 1; ++q) {
+                                for (int w = -stencil_half[0]; w < stencil_half[0] + 1; ++w) {
+                                    //neigh_sum += (stencil_vec[stencil_counter].mesh[counter] *
+                                    //              temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]));
+                                    temp_vec_di.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]) += dO * stencil_vec[stencil_counter].mesh[counter];
+
+                                    temp_vec_dw.mesh[counter] += dO * temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]);
+
+                                    counter++;
+                                }//w
+                            }//q
+                        }//l
+                    }//y, pixels/columns
+                }//x , rows
+*/
+
+                /// if there are downsampled values, we need to use the tree iterator for those outputs
+                if(level == current_max_level && current_max_level < apr.level_max()) {
+
+                    int64_t tree_offset = compute_tree_offset(apr, level, false);
+
+                    timer.start_timer("backward conv tree particles");
+
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(tree_iterator) reduction(+ : d_bias) if(parallelize)
+#endif
+                    for(x = 0; x < apr_iterator.spatial_index_x_max(level); ++x) {
+
+                        int thread_id = 0;
+
+#ifdef HAVE_OPENMP
+                        thread_id = omp_get_thread_num();
+#endif
+
+                        for (tree_iterator.set_new_lzx(level, z, x);
+                             tree_iterator.global_index() < tree_iterator.end_index;
+                             tree_iterator.set_iterator_to_particle_next_particle()) {
+
+                            //const int k = tree_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                            //const int i = x + stencil_half[1];
+
+
+                            float dO = grad_output_ptr[out_offset + tree_iterator.global_index() + tree_offset];
+                            d_bias += dO;
+
+                            int w_offset = thread_id * temp_vec_dw.x_num * temp_vec_dw.y_num;
+                            //int counter = 0; //stencil_vec[stencil_counter].mesh.size() - 1;
+
+                            uint64_t idx = tree_iterator.y() + tree_iterator.x() * temp_vec_di.y_num;
+
+                            temp_vec_di.mesh[idx] += temp_vec_dO.at(tree_iterator.y(), tree_iterator.x(), 0) * stencil_vec[stencil_counter].mesh[8] +
+                                                     temp_vec_dO.at(tree_iterator.y()+1, tree_iterator.x(), 0) * stencil_vec[stencil_counter].mesh[7] +
+                                                     temp_vec_dO.at(tree_iterator.y()+2, tree_iterator.x(), 0) * stencil_vec[stencil_counter].mesh[6] +
+                                                     temp_vec_dO.at(tree_iterator.y(), tree_iterator.x()+1, 0) * stencil_vec[stencil_counter].mesh[5] +
+                                                     temp_vec_dO.at(tree_iterator.y()+1, tree_iterator.x()+1, 0) * stencil_vec[stencil_counter].mesh[4] +
+                                                     temp_vec_dO.at(tree_iterator.y()+2, tree_iterator.x()+1, 0) * stencil_vec[stencil_counter].mesh[3] +
+                                                     temp_vec_dO.at(tree_iterator.y(), tree_iterator.x()+2, 0) * stencil_vec[stencil_counter].mesh[2] +
+                                                     temp_vec_dO.at(tree_iterator.y()+1, tree_iterator.x()+2, 0) * stencil_vec[stencil_counter].mesh[1] +
+                                                     temp_vec_dO.at(tree_iterator.y()+2, tree_iterator.x()+2, 0) * stencil_vec[stencil_counter].mesh[0];
+                            /*
+                            temp_vec_di.at(tree_iterator.y(), tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[0];
+                            temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[1];
+                            temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[2];
+
+                            temp_vec_di.at(tree_iterator.y(), tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[3];
+                            temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[4];
+                            temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[5];
+
+                            temp_vec_di.at(tree_iterator.y(), tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[6];
+                            temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[7];
+                            temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[8];
+                            */
+
+                            temp_vec_dw.mesh[w_offset] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x(), 0);
+                            temp_vec_dw.mesh[w_offset+1] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x(), 0);
+                            temp_vec_dw.mesh[w_offset+2] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x(), 0);
+
+                            temp_vec_dw.mesh[w_offset+3] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x()+1, 0);
+                            temp_vec_dw.mesh[w_offset+4] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x()+1, 0);
+                            temp_vec_dw.mesh[w_offset+5] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x()+1, 0);
+
+                            temp_vec_dw.mesh[w_offset+6] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x()+2, 0);
+                            temp_vec_dw.mesh[w_offset+7] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x()+2, 0);
+                            temp_vec_dw.mesh[w_offset+8] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x()+2, 0);
+                        }//y, pixels/columns (tree)
+                    } //ix
+/*
+                    for(x = number_chunks*chunk_distance; x<apr.spatial_index_x_max(level); ++x) {
+                        for (tree_iterator.set_new_lzx(level, z, x);
+                             tree_iterator.global_index() < tree_iterator.end_index;
+                             tree_iterator.set_iterator_to_particle_next_particle()) {
+
+                            //const int k = tree_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                            //const int i = x + stencil_half[1];
+
+                            float dO = grad_output_ptr[out_offset + tree_iterator.global_index() + tree_offset];
+                            d_bias += dO;
+
+                            temp_vec_di.at(tree_iterator.y(), tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[0];
+                            temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[1];
+                            temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[2];
+
+                            temp_vec_di.at(tree_iterator.y(), tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[3];
+                            temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[4];
+                            temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[5];
+
+                            temp_vec_di.at(tree_iterator.y(), tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[6];
+                            temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[7];
+                            temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[8];
+
+
+                            temp_vec_dw.mesh[0] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x(), 0);
+                            temp_vec_dw.mesh[1] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x(), 0);
+                            temp_vec_dw.mesh[2] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x(), 0);
+
+                            temp_vec_dw.mesh[3] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x()+1, 0);
+                            temp_vec_dw.mesh[4] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x()+1, 0);
+                            temp_vec_dw.mesh[5] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x()+1, 0);
+
+                            temp_vec_dw.mesh[6] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x()+2, 0);
+                            temp_vec_dw.mesh[7] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x()+2, 0);
+                            temp_vec_dw.mesh[8] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x()+2, 0);
+                        }//y, pixels/columns (tree)
+                    }
+              */
+                    timer.stop_timer();
+
+                    /*
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x) firstprivate(tree_iterator) reduction(+ : d_bias)
+#endif
+                    for (x = 0; x < tree_iterator.spatial_index_x_max(level); ++x) {
+                        for (tree_iterator.set_new_lzx(level, z, x);
+                             tree_iterator.global_index() < tree_iterator.end_index;
+                             tree_iterator.set_iterator_to_particle_next_particle()) {
+
+                            int counter = 0;
+
+                            const int k = tree_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                            const int i = x + stencil_half[1];
+
+
+                            float dO = grad_output_ptr[out_offset + tree_iterator.global_index() + tree_offset];
+                            d_bias += dO;
+
+                            for (int l = -stencil_half[2]; l < stencil_half[2] + 1; ++l) {
+                                for (int q = -stencil_half[1]; q < stencil_half[1] + 1; ++q) {
+                                    for (int w = -stencil_half[0]; w < stencil_half[0] + 1; ++w) {
+                                        //neigh_sum += (stencil_vec[stencil_counter].mesh[counter] *
+                                        //              temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]));
+
+                                        temp_vec_di.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]) += dO * stencil_vec[stencil_counter].mesh[counter];
+
+                                        temp_vec_dw.mesh[counter] += dO * temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]);
+
+                                        counter++;
+                                    }
+                                }
+                            }
+                        }//y, pixels/columns (tree)
+                    }//x, rows (tree)
+                     */
+                } //if
+
+                //TODO: this works for 2D images, but for 3D the updating needs to change
+                /// push temp_vec_di to grad_input and grad_tree_temp
+                timer.start_timer("update_dense_array2_backward");
+                update_dense_array2_backward(level, z, apr, apr_iterator, tree_iterator, grad_tree_temp,
+                                             temp_vec_di, grad_input, stencil_shape, stencil_half, in_offset);
+
+                timer.stop_timer();
+            }//z
+
+            // sum up weight gradient contributions if >1 threads were used
+            if(temp_vec_dw.z_num > 1) {
+                timer.start_timer("reduce temp_vec_dw");
+
+                size_t xnumynum = temp_vec_dw.x_num * temp_vec_dw.y_num;
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+                for (int ixy = 0; ixy < xnumynum; ++ixy) {
+                    float tmp = 0.0f;
+                    for(int iz = 1; iz < temp_vec_dw.z_num; ++iz) {
+                        tmp += temp_vec_dw.mesh[iz * xnumynum + ixy];
+                    }
+
+                    temp_vec_dw.mesh[ixy] += tmp;
+
+                }
+                timer.stop_timer();
+            }
+            /// push temp_vec_dw to grad_weights
+            timer.start_timer("fill weight gradient");
+            if(ds_stencil) {
+                downsample_stencil_alt_backward(temp_vec_dw, grad_weight, stencil_counter, out_channel, in_channel, batch_size);
+            } else {
+                //std::cout << "fill_stencil_gradient called" << std::endl;
+
+                fill_stencil_gradient(temp_vec_dw, grad_weight, out_channel, in_channel, stencil_counter, batch_size);
+            }
+            timer.stop_timer();
+            // Use the next stencil (if available). The last supplied stencil will be used for all remaining levels.
+            stencil_counter = std::min(stencil_counter + 1, (int) stencil_vec.size() - 1);
+
+        }//levels
+
+        /// push d_bias to grad_bias
+        py::buffer_info grad_bias_buf = grad_bias.request(true);
+        auto grad_bias_ptr = (float *) grad_bias_buf.ptr;
+
+        grad_bias_ptr[out_channel] += d_bias / batch_size;
+
+        /// push grad_tree_temp to grad_inputs
+        timer.start_timer("fill_tree_backward");
+        fill_tree_mean_py_backward(apr, apr.apr_tree, grad_input, grad_tree_temp, in_offset, current_max_level);
+        timer.stop_timer();
+    }
+
+
+    template<typename ImageType, typename T>
+    void convolve_equivalent_loop_backward_unrolled(APR<ImageType> &apr, py::array &input_intensities, const std::vector<PixelData<T>>& stencil_vec, py::array &grad_output, py::array &grad_input, py::array &grad_weight, py::array &grad_bias, int out_channel, int in_channel, int batch_num, unsigned int current_max_level, const bool ds_stencil) {
+
+        APRTimer timer(false);
+        //output_intensities.resize(input_intensities.size());
+
+        const int parallel_th = 1;
+
+        py::buffer_info grad_input_buf = grad_input.request();
+        uint64_t in_offset = batch_num * grad_input_buf.shape[1] * grad_input_buf.shape[2] + in_channel * grad_input_buf.shape[2];
+
+        //unsigned int current_max_level = find_max_level(apr, input_intensities, false);
+
+        /**** initialize and fill the apr tree ****/
+        apr.apr_tree.init(apr);
+        ExtraParticleData<float> tree_data;
+        fill_tree_mean_py(apr, apr.apr_tree, input_intensities, tree_data, in_offset, current_max_level);
+
+        /*** initialize a temporary apr tree for the input gradients ***/
+        ExtraParticleData<float> grad_tree_temp;
+
+        grad_tree_temp.data.resize(tree_data.data.size(), 0.0f);
+
+        /*** iterators for accessing apr data ***/
+        auto apr_iterator = apr.iterator();
+        auto tree_iterator = apr.apr_tree.tree_iterator();
+
+        py::buffer_info grad_output_buf = grad_output.request();
+        auto grad_output_ptr = (float *) grad_output_buf.ptr;
+
+        uint64_t out_offset = batch_num * grad_output_buf.shape[1] * grad_output_buf.shape[2] + out_channel * grad_output_buf.shape[2];
+        int stencil_counter = 0;
+
+        int batch_size = grad_input_buf.shape[0];
+        float d_bias = 0;
+
+        for (int level = current_max_level; level >= apr_iterator.level_min(); --level) {
+
+            //PixelData<float> stencil(stencil_vec[stencil_counter], true);
+
+            const std::vector<int> stencil_shape = {(int) stencil_vec[stencil_counter].y_num,
+                                                    (int) stencil_vec[stencil_counter].x_num,
+                                                    (int) stencil_vec[stencil_counter].z_num};
+            const std::vector<int> stencil_half = {(stencil_shape[0] - 1) / 2, (stencil_shape[1] - 1) / 2,
+                                                   (stencil_shape[2] - 1) / 2};
+
+            // assert stencil_shape compatible with apr org_dims?
+
+            unsigned int z = 0;
+            unsigned int x = 0;
+
+            const int z_num = apr_iterator.spatial_index_z_max(level);
+
+            const int y_num_m = (apr.apr_access.org_dims[0] > 1) ? apr_iterator.spatial_index_y_max(level) +
+                                                                   stencil_shape[0] - 1 : 1;
+            const int x_num_m = (apr.apr_access.org_dims[1] > 1) ? apr_iterator.spatial_index_x_max(level) +
+                                                                   stencil_shape[1] - 1 : 1;
+
+
+            PixelData<float> temp_vec;
+            temp_vec.init(y_num_m, x_num_m, stencil_shape[2], 0); //zero padded boundaries
+
+            PixelData<float> temp_vec_di;
+            temp_vec_di.init(y_num_m, x_num_m, stencil_shape[2], 0);
+
+            PixelData<float> temp_vec_dw;
+            int num_threads = 1;
+#ifdef HAVE_OPENMP
+            num_threads = omp_get_max_threads();
+#endif
+            //std::cout << "OMP MAX THREADS: " << num_threads << std::endl;
+
+            temp_vec_dw.init(stencil_shape[0], stencil_shape[1], num_threads, 0);
+
+
+            //initial condition
+            for (int padd = 0; padd < stencil_half[2]; ++padd) {
+                update_dense_array2(level,
+                                    padd,
+                                    apr,
+                                    apr_iterator,
+                                    tree_iterator,
+                                    tree_data,
+                                    temp_vec,
+                                    input_intensities,
+                                    stencil_shape,
+                                    stencil_half,
+                                    in_offset);
+            }
+
+            for (z = 0; z < apr.spatial_index_z_max(level); ++z) {
+
+                if (z < (z_num - stencil_half[2])) {
+                    //update the next z plane for the access
+                    update_dense_array2(level, z + stencil_half[2], apr, apr_iterator, tree_iterator, tree_data,
+                                        temp_vec, input_intensities, stencil_shape, stencil_half, in_offset);
+                } else {
+                    //padding
+                    uint64_t index = temp_vec.x_num * temp_vec.y_num * ((z + stencil_half[2]) % stencil_shape[2]);
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(static) private(x)
+#endif
+                    for (x = 0; x < temp_vec.x_num; ++x) {
+                        std::fill(temp_vec.mesh.begin() + index + (x + 0) * temp_vec.y_num,
+                                  temp_vec.mesh.begin() + index + (x + 1) * temp_vec.y_num, 0);
+                    }
+                }
+
+                //std::string fileName = "/Users/joeljonsson/Documents/STUFF/temp_vec_bw_lvl" + std::to_string(level) + ".tif";
+                //TiffUtils::saveMeshAsTiff(fileName, temp_vec);
+
+
+                const int chunk_distance = stencil_shape[1];
+                const int number_chunks = apr.spatial_index_x_max(level) / chunk_distance;
+
+                const bool parallelize = number_chunks > parallel_th;
+
+
+                timer.start_timer("backward conv apr particles");
+                for(int chunk = 0; chunk < chunk_distance; ++chunk) {
+                    int ix;
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(ix, x) firstprivate(apr_iterator) reduction(+ : d_bias) if(parallelize)
+#endif
+                    for(ix = 0; ix < number_chunks; ++ix) {
+
+                        int thread_id = 0;
+
+#ifdef HAVE_OPENMP
+                        thread_id = omp_get_thread_num();
+#endif
+
+                        x = chunk + ix * chunk_distance;
+
+                        for (apr_iterator.set_new_lzx(level, z, x);
+                             apr_iterator.global_index() < apr_iterator.end_index;
+                             apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                            //const int k = apr_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                            //const int i = x + stencil_half[1];
+
+                            //compute the stencil
+
+                            float dO = grad_output_ptr[out_offset + apr_iterator.global_index()];
+
+                            d_bias += dO;
+
+                            //int counter = 0; //stencil_vec[stencil_counter].mesh.size() - 1;
+                            int w_offset = thread_id * temp_vec_dw.x_num * temp_vec_dw.y_num;
+
+                            temp_vec_di.at(apr_iterator.y(), apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[0];
+                            temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[1];
+                            temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[2];
+
+                            temp_vec_di.at(apr_iterator.y(), apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[3];
+                            temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[4];
+                            temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[5];
+
+                            temp_vec_di.at(apr_iterator.y(), apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[6];
+                            temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[7];
+                            temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[8];
+
+
+                            temp_vec_dw.mesh[w_offset] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x(), 0);
+                            temp_vec_dw.mesh[w_offset+1] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x(), 0);
+                            temp_vec_dw.mesh[w_offset+2] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x(), 0);
+
+                            temp_vec_dw.mesh[w_offset+3] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x()+1, 0);
+                            temp_vec_dw.mesh[w_offset+4] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x()+1, 0);
+                            temp_vec_dw.mesh[w_offset+5] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x()+1, 0);
+
+                            temp_vec_dw.mesh[w_offset+6] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x()+2, 0);
+                            temp_vec_dw.mesh[w_offset+7] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x()+2, 0);
+                            temp_vec_dw.mesh[w_offset+8] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x()+2, 0);
+
+                        }//y, pixels/columns
+                    } //ix
+                } //chunk
+
+                for(x = number_chunks*chunk_distance; x<apr.spatial_index_x_max(level); ++x) {
+                    for (apr_iterator.set_new_lzx(level, z, x);
+                         apr_iterator.global_index() < apr_iterator.end_index;
+                         apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                        //const int k = apr_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                        //const int i = x + stencil_half[1];
+
+                        //compute the stencil
+
+                        float dO = grad_output_ptr[out_offset + apr_iterator.global_index()];
+
+                        //grad_output_ptr[out_offset + apr_iterator.global_index()] = 0.0f;
+                        d_bias += dO;
+
+                        //int counter = 0; //stencil_vec[stencil_counter].mesh.size() - 1;
+
+                        temp_vec_di.at(apr_iterator.y(), apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[0];
+                        temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[1];
+                        temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[2];
+
+                        temp_vec_di.at(apr_iterator.y(), apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[3];
+                        temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[4];
+                        temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[5];
+
+                        temp_vec_di.at(apr_iterator.y(), apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[6];
+                        temp_vec_di.at(apr_iterator.y()+1, apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[7];
+                        temp_vec_di.at(apr_iterator.y()+2, apr_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[8];
+
+
+                        temp_vec_dw.mesh[0] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x(), 0);
+                        temp_vec_dw.mesh[1] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x(), 0);
+                        temp_vec_dw.mesh[2] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x(), 0);
+
+                        temp_vec_dw.mesh[3] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x()+1, 0);
+                        temp_vec_dw.mesh[4] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x()+1, 0);
+                        temp_vec_dw.mesh[5] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x()+1, 0);
+
+                        temp_vec_dw.mesh[6] += dO * temp_vec.at(apr_iterator.y(), apr_iterator.x()+2, 0);
+                        temp_vec_dw.mesh[7] += dO * temp_vec.at(apr_iterator.y()+1, apr_iterator.x()+2, 0);
+                        temp_vec_dw.mesh[8] += dO * temp_vec.at(apr_iterator.y()+2, apr_iterator.x()+2, 0);
+                    }//y, pixels/columns
+                }
+                timer.stop_timer();
+/*
+                /// Loop over APR particles
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x) firstprivate(apr_iterator) reduction(+ : d_bias)
+#endif
+                for (x = 0; x < apr.spatial_index_x_max(level); ++x) {
+                    for (apr_iterator.set_new_lzx(level, z, x);
+                         apr_iterator.global_index() < apr_iterator.end_index;
+                         apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                        int counter = 0;
+
+                        const int k = apr_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                        const int i = x + stencil_half[1];
+
+                        //compute the stencil
+
+                        float dO = grad_output_ptr[out_offset + apr_iterator.global_index()];
+
+                        d_bias += dO;
+
+                        for (int l = -stencil_half[2]; l < stencil_half[2] + 1; ++l) {
+                            for (int q = -stencil_half[1]; q < stencil_half[1] + 1; ++q) {
+                                for (int w = -stencil_half[0]; w < stencil_half[0] + 1; ++w) {
+                                    //neigh_sum += (stencil_vec[stencil_counter].mesh[counter] *
+                                    //              temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]));
+                                    temp_vec_di.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]) += dO * stencil_vec[stencil_counter].mesh[counter];
+
+                                    temp_vec_dw.mesh[counter] += dO * temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]);
+
+                                    counter++;
+                                }//w
+                            }//q
+                        }//l
+                    }//y, pixels/columns
+                }//x , rows
+*/
+
+                /// if there are downsampled values, we need to use the tree iterator for those outputs
+                if(level == current_max_level && current_max_level < apr.level_max()) {
+
+                    int64_t tree_offset = compute_tree_offset(apr, level, false);
+
+                    timer.start_timer("backward conv tree particles");
+                    for(int chunk = 0; chunk < chunk_distance; ++chunk) {
+                        int ix;
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(ix, x) firstprivate(tree_iterator) reduction(+ : d_bias) if(parallelize)
+#endif
+                        for(ix = 0; ix < number_chunks; ++ix) {
+
+                            int thread_id = 0;
+
+#ifdef HAVE_OPENMP
+                            thread_id = omp_get_thread_num();
+#endif
+
+                            x = chunk + ix * chunk_distance;
+
+                            for (tree_iterator.set_new_lzx(level, z, x);
+                                 tree_iterator.global_index() < tree_iterator.end_index;
+                                 tree_iterator.set_iterator_to_particle_next_particle()) {
+
+                                //const int k = tree_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                                //const int i = x + stencil_half[1];
+
+
+                                float dO = grad_output_ptr[out_offset + tree_iterator.global_index() + tree_offset];
+                                d_bias += dO;
+
+                                int w_offset = thread_id * temp_vec_dw.x_num * temp_vec_dw.y_num;
+                                //int counter = 0; //stencil_vec[stencil_counter].mesh.size() - 1;
+
+                                temp_vec_di.at(tree_iterator.y(), tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[0];
+                                temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[1];
+                                temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[2];
+
+                                temp_vec_di.at(tree_iterator.y(), tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[3];
+                                temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[4];
+                                temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[5];
+
+                                temp_vec_di.at(tree_iterator.y(), tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[6];
+                                temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[7];
+                                temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[8];
+
+
+                                temp_vec_dw.mesh[w_offset] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x(), 0);
+                                temp_vec_dw.mesh[w_offset+1] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x(), 0);
+                                temp_vec_dw.mesh[w_offset+2] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x(), 0);
+
+                                temp_vec_dw.mesh[w_offset+3] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x()+1, 0);
+                                temp_vec_dw.mesh[w_offset+4] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x()+1, 0);
+                                temp_vec_dw.mesh[w_offset+5] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x()+1, 0);
+
+                                temp_vec_dw.mesh[w_offset+6] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x()+2, 0);
+                                temp_vec_dw.mesh[w_offset+7] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x()+2, 0);
+                                temp_vec_dw.mesh[w_offset+8] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x()+2, 0);
+                            }//y, pixels/columns (tree)
+                        } //ix
+                    } //chunk
+
+                    for(x = number_chunks*chunk_distance; x<apr.spatial_index_x_max(level); ++x) {
+                        for (tree_iterator.set_new_lzx(level, z, x);
+                             tree_iterator.global_index() < tree_iterator.end_index;
+                             tree_iterator.set_iterator_to_particle_next_particle()) {
+
+                            //const int k = tree_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                            //const int i = x + stencil_half[1];
+
+                            float dO = grad_output_ptr[out_offset + tree_iterator.global_index() + tree_offset];
+                            d_bias += dO;
+
+                            temp_vec_di.at(tree_iterator.y(), tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[0];
+                            temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[1];
+                            temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x(), 0) += dO * stencil_vec[stencil_counter].mesh[2];
+
+                            temp_vec_di.at(tree_iterator.y(), tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[3];
+                            temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[4];
+                            temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x()+1, 0) += dO * stencil_vec[stencil_counter].mesh[5];
+
+                            temp_vec_di.at(tree_iterator.y(), tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[6];
+                            temp_vec_di.at(tree_iterator.y()+1, tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[7];
+                            temp_vec_di.at(tree_iterator.y()+2, tree_iterator.x()+2, 0) += dO * stencil_vec[stencil_counter].mesh[8];
+
+
+                            temp_vec_dw.mesh[0] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x(), 0);
+                            temp_vec_dw.mesh[1] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x(), 0);
+                            temp_vec_dw.mesh[2] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x(), 0);
+
+                            temp_vec_dw.mesh[3] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x()+1, 0);
+                            temp_vec_dw.mesh[4] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x()+1, 0);
+                            temp_vec_dw.mesh[5] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x()+1, 0);
+
+                            temp_vec_dw.mesh[6] += dO * temp_vec.at(tree_iterator.y(), tree_iterator.x()+2, 0);
+                            temp_vec_dw.mesh[7] += dO * temp_vec.at(tree_iterator.y()+1, tree_iterator.x()+2, 0);
+                            temp_vec_dw.mesh[8] += dO * temp_vec.at(tree_iterator.y()+2, tree_iterator.x()+2, 0);
+                        }//y, pixels/columns (tree)
+                    }
+                    timer.stop_timer();
+
+                    /*
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x) firstprivate(tree_iterator) reduction(+ : d_bias)
+#endif
+                    for (x = 0; x < tree_iterator.spatial_index_x_max(level); ++x) {
+                        for (tree_iterator.set_new_lzx(level, z, x);
+                             tree_iterator.global_index() < tree_iterator.end_index;
+                             tree_iterator.set_iterator_to_particle_next_particle()) {
+
+                            int counter = 0;
+
+                            const int k = tree_iterator.y() + stencil_half[0]; // offset to allow for boundary padding
+                            const int i = x + stencil_half[1];
+
+
+                            float dO = grad_output_ptr[out_offset + tree_iterator.global_index() + tree_offset];
+                            d_bias += dO;
+
+                            for (int l = -stencil_half[2]; l < stencil_half[2] + 1; ++l) {
+                                for (int q = -stencil_half[1]; q < stencil_half[1] + 1; ++q) {
+                                    for (int w = -stencil_half[0]; w < stencil_half[0] + 1; ++w) {
+                                        //neigh_sum += (stencil_vec[stencil_counter].mesh[counter] *
+                                        //              temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]));
+
+                                        temp_vec_di.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]) += dO * stencil_vec[stencil_counter].mesh[counter];
+
+                                        temp_vec_dw.mesh[counter] += dO * temp_vec.at(k + w, i + q, (z + stencil_half[2] + l) % stencil_shape[2]);
+
+                                        counter++;
+                                    }
+                                }
+                            }
+                        }//y, pixels/columns (tree)
+                    }//x, rows (tree)
+                     */
+                } //if
+
+                //TODO: this works for 2D images, but for 3D the updating needs to change
+                /// push temp_vec_di to grad_input and grad_tree_temp
+                timer.start_timer("update_dense_array2_backward");
+                update_dense_array2_backward(level, z, apr, apr_iterator, tree_iterator, grad_tree_temp,
+                                             temp_vec_di, grad_input, stencil_shape, stencil_half, in_offset);
+
+                timer.stop_timer();
+            }//z
+
+            // sum up weight gradient contributions if >1 threads were used
+            if(temp_vec_dw.z_num > 1) {
+                timer.start_timer("reduce temp_vec_dw");
+
+                size_t xnumynum = temp_vec_dw.x_num * temp_vec_dw.y_num;
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+                for (int ixy = 0; ixy < xnumynum; ++ixy) {
+                    float tmp = 0.0f;
+                    for(int iz = 1; iz < temp_vec_dw.z_num; ++iz) {
+                        tmp += temp_vec_dw.mesh[iz * xnumynum + ixy];
+                    }
+
+                    temp_vec_dw.mesh[ixy] += tmp;
+
+                }
+                timer.stop_timer();
+            }
+            /// push temp_vec_dw to grad_weights
+            timer.start_timer("fill weight gradient");
+            if(ds_stencil) {
+                downsample_stencil_alt_backward(temp_vec_dw, grad_weight, stencil_counter, out_channel, in_channel, batch_size);
+            } else {
+                //std::cout << "fill_stencil_gradient called" << std::endl;
+
+                fill_stencil_gradient(temp_vec_dw, grad_weight, out_channel, in_channel, stencil_counter, batch_size);
+            }
+            timer.stop_timer();
+            // Use the next stencil (if available). The last supplied stencil will be used for all remaining levels.
+            stencil_counter = std::min(stencil_counter + 1, (int) stencil_vec.size() - 1);
+
+        }//levels
+
+        /// push d_bias to grad_bias
+        py::buffer_info grad_bias_buf = grad_bias.request(true);
+        auto grad_bias_ptr = (float *) grad_bias_buf.ptr;
+
+        grad_bias_ptr[out_channel] += d_bias / batch_size;
+
+        /// push grad_tree_temp to grad_inputs
+        timer.start_timer("fill_tree_backward");
+        fill_tree_mean_py_backward(apr, apr.apr_tree, grad_input, grad_tree_temp, in_offset, current_max_level);
+        timer.stop_timer();
+    }
+
+
+    template<typename ImageType, typename T>
+    void convolve_equivalent_loop_backward_old(APR<ImageType> &apr, py::array &input_intensities, const std::vector<PixelData<T>>& stencil_vec, py::array &grad_output, py::array &grad_input, py::array &grad_weight, py::array &grad_bias, int out_channel, int in_channel, int batch_num, unsigned int current_max_level, const bool ds_stencil) {
 
         APRTimer timer(false);
         //output_intensities.resize(input_intensities.size());

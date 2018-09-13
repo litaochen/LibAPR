@@ -257,7 +257,7 @@ public:
                     }
                 }
 
-                filter_fns.convolve_equivalent_loop(apr, input_features, stencil_vec, b, output, out, in, batch_num, current_max_level);
+                filter_fns.convolve_equivalent_loop_unrolled(apr, input_features, stencil_vec, b, output, out, in, batch_num, current_max_level);
             }
         }
     }
@@ -305,7 +305,7 @@ public:
                     }
                 }
 
-                filter_fns.convolve_equivalent_loop_backward(apr, input_features, stencil_vec, grad_output, grad_input, grad_weights, grad_bias, out, in, batch_num, current_max_level, false);
+                filter_fns.convolve_equivalent_loop_backward_unrolled(apr, input_features, stencil_vec, grad_output, grad_input, grad_weights, grad_bias, out, in, batch_num, current_max_level, false);
 
             }
         }
