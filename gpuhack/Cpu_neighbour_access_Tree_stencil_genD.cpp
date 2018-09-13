@@ -81,8 +81,11 @@ int main(int argc, char **argv) {
 
     /**** Filling the inside ********/
 
+    for (int m = 0; m < 100; ++m) {
+        apr.apr_tree.init(apr);
+        apr.apr_tree.fill_tree_mean_downsample(apr.particles_intensities);
+    }
     timer.start_timer("filling the tree");
-
     for (int m = 0; m < num_rep ; ++m) {
 
         apr.apr_tree.init(apr);

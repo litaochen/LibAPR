@@ -183,8 +183,8 @@ public:
             int z = 0;
             int x = 0;
 
-            const bool parallel_z = apr_iterator.spatial_index_z_max(level) > 1000;
-            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level) > 1000;
+            const bool parallel_z = apr_iterator.spatial_index_z_max(level) > 1;
+            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level) > 1;
 
 #ifdef HAVE_OPENMP
 #pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_z)

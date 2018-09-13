@@ -157,7 +157,7 @@ public:
 
         APRTimer timer(false);
 
-        const int parallel_th = 1000;
+        const int parallel_th = 1;
 
         py::buffer_info input_buf = input_intensities.request();
 
@@ -1381,7 +1381,7 @@ public:
         APRTimer timer(false);
         //output_intensities.resize(input_intensities.size());
 
-        const int parallel_th = 1000;
+        const int parallel_th = 1;
 
         py::buffer_info grad_input_buf = grad_input.request();
         uint64_t in_offset = batch_num * grad_input_buf.shape[1] * grad_input_buf.shape[2] + in_channel * grad_input_buf.shape[2];
@@ -1495,10 +1495,11 @@ public:
 
                 timer.start_timer("backward conv apr particles");
                 for(int chunk = 0; chunk < chunk_distance; ++chunk) {
+                    int ix;
 #ifdef HAVE_OPENMP
-#pragma omp parallel for schedule(dynamic) private(x) firstprivate(apr_iterator) reduction(+ : d_bias) if(parallelize)
+#pragma omp parallel for schedule(dynamic) private(ix, x) firstprivate(apr_iterator) reduction(+ : d_bias) if(parallelize)
 #endif
-                    for(int ix = 0; ix < number_chunks; ++ix) {
+                    for(ix = 0; ix < number_chunks; ++ix) {
 
                         int thread_id = 0;
 
@@ -1625,10 +1626,11 @@ public:
 
                     timer.start_timer("backward conv tree particles");
                     for(int chunk = 0; chunk < chunk_distance; ++chunk) {
+                        int ix;
 #ifdef HAVE_OPENMP
-#pragma omp parallel for schedule(dynamic) private(x) firstprivate(tree_iterator) reduction(+ : d_bias) if(parallelize)
+#pragma omp parallel for schedule(dynamic) private(ix, x) firstprivate(tree_iterator) reduction(+ : d_bias) if(parallelize)
 #endif
-                        for(int ix = 0; ix < number_chunks; ++ix) {
+                        for(ix = 0; ix < number_chunks; ++ix) {
 
                             int thread_id = 0;
 
@@ -1918,7 +1920,7 @@ public:
 
         uint64_t x;
 
-        const int parallel_th = 1000;
+        const int parallel_th = 1;
 
         const uint64_t x_num_m = temp_vec_di.x_num;
         const uint64_t y_num_m = temp_vec_di.y_num;
@@ -2071,7 +2073,7 @@ public:
 
         APRTimer timer(false);
 
-        const int parallel_th = 1000;
+        const int parallel_th = 1;
 
         timer.start_timer("ds-init");
 
@@ -2253,7 +2255,7 @@ public:
         APRTimer timer(false);
         APRTimer t2(false);
 
-        const int parallel_th = 1000;
+        const int parallel_th = 1;
 
         APRTreeIterator treeIterator = apr_tree.tree_iterator();
         APRTreeIterator parentIterator = apr_tree.tree_iterator();
@@ -2608,7 +2610,7 @@ public:
                        unsigned int current_max_level,
                        int batch_num) {
 
-        const int parallel_th = 1000;
+        const int parallel_th = 1;
 
         py::buffer_info input_buf = input.request();
         py::buffer_info output_buf = output.request(true);
@@ -2737,7 +2739,7 @@ public:
                                  int batch_num,
                                  py::array &index_arr) {
 
-        const int parallel_th = 1000;
+        const int parallel_th = 1;
 
         py::buffer_info input_buf = input.request();
         py::buffer_info output_buf = output.request(true);
@@ -3131,8 +3133,8 @@ public:
 
             const float step_size = pow(2, current_max_level - level);
 
-            const bool parallel_z = apr_iterator.spatial_index_z_max(level) > 1000;
-            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level) > 1000;
+            const bool parallel_z = apr_iterator.spatial_index_z_max(level) > 1;
+            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level) > 1;
 
 #ifdef HAVE_OPENMP
 #pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_z)

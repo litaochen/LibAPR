@@ -54,7 +54,7 @@ private:
 
         APRTimer timer(false);
 
-        const int parallel_th = 1000;
+        const int parallel_th = 1;
 
         auto apr_iterator = apr.iterator();
 
@@ -191,8 +191,10 @@ public:
     template<typename T,typename S,typename U>
     static void fill_tree_mean(APR<T>& apr,APRTree<T>& apr_tree,ExtraParticleData<S>& particle_data,ExtraParticleData<U>& tree_data) {
 
+        const int parallel_th = 1;
+
         APRTimer timer;
-        timer.verbose_flag = true;
+        timer.verbose_flag = false;
 
         timer.start_timer("ds-init");
         tree_data.init(apr_tree.total_number_parent_cells());
@@ -209,12 +211,19 @@ public:
         timer.start_timer("ds-1l");
 
         for (unsigned int level = apr_iterator.level_max(); level >= apr_iterator.level_min(); --level) {
+
+            const bool parallel_z = apr_iterator.spatial_index_z_max(level-1) > parallel_th;
+            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level-1) > parallel_th;
+
 #ifdef HAVE_OPENMP
-#pragma omp parallel for schedule(dynamic) private(x_d, z_d) firstprivate(apr_iterator, parentIterator)
+#pragma omp parallel for schedule(dynamic) private(x_d, z_d) firstprivate(apr_iterator, parentIterator) if(parallel_z)
 #endif
             for (z_d = 0; z_d < parentIterator.spatial_index_z_max(level-1); z_d++) {
                 for (int z = 2*z_d; z <= std::min(2*z_d+1,(int)apr.spatial_index_z_max(level)-1); ++z) {
                     //the loop is bundled into blocks of 2, this prevents race conditions with OpenMP parents
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x_d, z_d) firstprivate(apr_iterator, parentIterator) if(parallel_x)
+#endif
                     for (x_d = 0; x_d < parentIterator.spatial_index_x_max(level-1); ++x_d) {
                         for (int x = 2 * x_d; x <= std::min(2 * x_d + 1, (int) apr.spatial_index_x_max(level)-1); ++x) {
 
@@ -270,12 +279,19 @@ public:
 
         //then do the rest of the tree where order matters
         for (unsigned int level = treeIterator.level_max(); level > treeIterator.level_min(); --level) {
+
+            const bool parallel_z = apr_iterator.spatial_index_z_max(level-1) > parallel_th;
+            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level-1) > parallel_th;
+
 #ifdef HAVE_OPENMP
-#pragma omp parallel for schedule(dynamic) private(x_d,z_d) firstprivate(treeIterator, parentIterator)
+#pragma omp parallel for schedule(dynamic) private(x_d,z_d) firstprivate(treeIterator, parentIterator) if(parallel_z)
 #endif
             for (z_d = 0; z_d < treeIterator.spatial_index_z_max(level-1); z_d++) {
                 for (int z = 2*z_d; z <= std::min(2*z_d+1,(int)treeIterator.spatial_index_z_max(level)-1); ++z) {
                     //the loop is bundled into blocks of 2, this prevents race conditions with OpenMP parents
+#ifdef HAVE_OPENMP
+#pragma omp parallel for schedule(dynamic) private(x_d,z_d) firstprivate(treeIterator, parentIterator) if(parallel_x)
+#endif
                     for (x_d = 0; x_d < treeIterator.spatial_index_x_max(level-1); ++x_d) {
                         for (int x = 2 * x_d; x <= std::min(2 * x_d + 1, (int) treeIterator.spatial_index_x_max(level)-1); ++x) {
 
