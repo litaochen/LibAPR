@@ -1804,7 +1804,7 @@ public:
                         //int counter = 0; //stencil_vec[stencil_counter].mesh.size() - 1;
                         int w_offset = thread_id * temp_vec_dw.x_num * temp_vec_dw.y_num;
 
-                        uint64_t idx = apr_iterator.y() + apr_iterator.x() * temp_vec_di.y_num;
+                        uint64_t idx = apr_iterator.y() + stencil_half[0] + (apr_iterator.x()+stencil_half[1]) * temp_vec_di.y_num;
 
                         temp_vec_di.mesh[idx] += temp_vec_dO.at(apr_iterator.y(),   x,   0) * stencil_vec[stencil_counter].mesh[8] +
                                                  temp_vec_dO.at(apr_iterator.y()+1, x,   0) * stencil_vec[stencil_counter].mesh[7] +
@@ -1960,7 +1960,7 @@ public:
                             int w_offset = thread_id * temp_vec_dw.x_num * temp_vec_dw.y_num;
                             //int counter = 0; //stencil_vec[stencil_counter].mesh.size() - 1;
 
-                            uint64_t idx = tree_iterator.y() + tree_iterator.x() * temp_vec_di.y_num;
+                            uint64_t idx = (tree_iterator.y() + stencil_half[0]) + (tree_iterator.x() + stencil_half[1]) * temp_vec_di.y_num;
 
                             temp_vec_di.mesh[idx] += temp_vec_dO.at(tree_iterator.y(), tree_iterator.x(), 0) * stencil_vec[stencil_counter].mesh[8] +
                                                      temp_vec_dO.at(tree_iterator.y()+1, tree_iterator.x(), 0) * stencil_vec[stencil_counter].mesh[7] +
