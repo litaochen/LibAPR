@@ -214,6 +214,7 @@ public:
     void convolve_loop(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
 
         PyAPRFiltering filter_fns;
+        APRTimer timer(true);
 
         //unsigned int current_max_level = apr.level_max()-level_delta;
         int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
@@ -256,8 +257,9 @@ public:
                         }
                     }
                 }
-
+                timer.start_timer("FORWARD CONVOLUTION");
                 filter_fns.convolve_equivalent_loop_unrolled(apr, input_features, stencil_vec, b, output, out, in, batch_num, current_max_level);
+                timer.stop_timer();
             }
         }
     }
@@ -266,6 +268,8 @@ public:
     void convolve_loop_backward(py::array &grad_output, py::array &input_features, py::array &weights, py::array &grad_input, py::array &grad_weights, py::array &grad_bias, int batch_num, int level_delta) {
 
         PyAPRFiltering filter_fns;
+
+        APRTimer timer(true);
 
         //unsigned int current_max_level = apr.level_max()-level_delta;
         int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
@@ -304,9 +308,9 @@ public:
                         }
                     }
                 }
-
+                timer.start_timer("CONVOLVE BACKWARDS");
                 filter_fns.convolve_equivalent_loop_backward(apr, input_features, stencil_vec, grad_output, grad_input, grad_weights, grad_bias, out, in, batch_num, current_max_level, false);
-
+                timer.stop_timer();
             }
         }
 
