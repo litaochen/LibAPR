@@ -114,7 +114,7 @@ int main(int argc, char **argv) {
 
     float norm = pow(stencil_size, apr.apr_access.number_dimensions);
 
-    float stencil_value = 1.0f/norm;
+    //float stencil_value = 1.0f/norm;
 
     std::vector<PixelData<float>> stencil_vec;
     stencil_vec.resize(2);

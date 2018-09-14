@@ -54,8 +54,6 @@ private:
 
         APRTimer timer(false);
 
-        const int parallel_th = 1;
-
         auto apr_iterator = apr.iterator();
 
         // --------------------------------------------------------------------
@@ -95,8 +93,10 @@ private:
             int x = 0;
             if (level < (apr.level_max())) {
 
-                const bool parallel_z = apr_iterator.spatial_index_z_max(level) > parallel_th;
-                const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level) > parallel_th;
+#ifdef HAVE_OPENMP
+                const bool parallel_z = apr_iterator.spatial_index_z_max(level) > 1;
+                const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level) > 1;
+#endif
 
 #ifdef HAVE_OPENMP
 #pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_z)
@@ -140,8 +140,10 @@ private:
             }
             else {
 
-                const bool parallel_z = apr_iterator.spatial_index_z_max(level-1) > parallel_th;
-                const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level-1) > parallel_th;
+#ifdef HAVE_OPENMP
+                const bool parallel_z = apr_iterator.spatial_index_z_max(level-1) > 1;
+                const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level-1) > 1;
+#endif
 
 #ifdef HAVE_OPENMP
 #pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_z)
@@ -191,8 +193,6 @@ public:
     template<typename T,typename S,typename U>
     static void fill_tree_mean(APR<T>& apr,APRTree<T>& apr_tree,ExtraParticleData<S>& particle_data,ExtraParticleData<U>& tree_data) {
 
-        const int parallel_th = 1;
-
         APRTimer timer;
         timer.verbose_flag = false;
 
@@ -212,8 +212,10 @@ public:
 
         for (unsigned int level = apr_iterator.level_max(); level >= apr_iterator.level_min(); --level) {
 
-            const bool parallel_z = apr_iterator.spatial_index_z_max(level-1) > parallel_th;
-            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level-1) > parallel_th;
+#ifdef HAVE_OPENMP
+            const bool parallel_z = apr_iterator.spatial_index_z_max(level-1) > 1;
+            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level-1) > 1;
+#endif
 
 #ifdef HAVE_OPENMP
 #pragma omp parallel for schedule(dynamic) private(x_d, z_d) firstprivate(apr_iterator, parentIterator) if(parallel_z)
@@ -280,8 +282,10 @@ public:
         //then do the rest of the tree where order matters
         for (unsigned int level = treeIterator.level_max(); level > treeIterator.level_min(); --level) {
 
-            const bool parallel_z = apr_iterator.spatial_index_z_max(level-1) > parallel_th;
-            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level-1) > parallel_th;
+#ifdef HAVE_OPENMP
+            const bool parallel_z = apr_iterator.spatial_index_z_max(level-1) > 1;
+            const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level-1) > 1;
+#endif
 
 #ifdef HAVE_OPENMP
 #pragma omp parallel for schedule(dynamic) private(x_d,z_d) firstprivate(treeIterator, parentIterator) if(parallel_z)

@@ -133,6 +133,7 @@ public:
         apr.apr_access.l_min = 2;
     }
 
+
     /**
      * Reads in the provided tiff file and computes its APR. Note: parameters for the APR conversion should be set
      * before by using set_parameters.
@@ -183,8 +184,10 @@ public:
             int z = 0;
             int x = 0;
 
+#ifdef HAVE_OPENMP
             const bool parallel_z = apr_iterator.spatial_index_z_max(level) > 1;
             const bool parallel_x = !parallel_z && apr_iterator.spatial_index_x_max(level) > 1;
+#endif
 
 #ifdef HAVE_OPENMP
 #pragma omp parallel for schedule(dynamic) private(z, x) firstprivate(apr_iterator) if(parallel_z)
@@ -211,13 +214,13 @@ public:
     }
 
 
-    void convolve_loop(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
+    void convolve1x1_loop(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
 
         PyAPRFiltering filter_fns;
-        APRTimer timer(true);
+        APRTimer timer(false);
 
         //unsigned int current_max_level = apr.level_max()-level_delta;
-        int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
+        const unsigned int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
 
         py::buffer_info input_buf = input_features.request();
         py::buffer_info weights_buf = weights.request();
@@ -226,11 +229,105 @@ public:
         auto weights_ptr = (float *) weights_buf.ptr;
         auto bias_ptr = (float *) bias_buf.ptr;
 
-        int out_channels = weights_buf.shape[0];
-        int in_channels = weights_buf.shape[1];
-        int nstencils = weights_buf.shape[2];
-        int height = weights_buf.shape[3];
-        int width = weights_buf.shape[4];
+        const size_t out_channels = weights_buf.shape[0];
+        const size_t in_channels = weights_buf.shape[1];
+        const size_t nstencils = weights_buf.shape[2];
+        const size_t height = weights_buf.shape[3];
+        const size_t width = weights_buf.shape[4];
+
+        if(height !=1 || width != 1) {
+            std::cerr << "This function assumes a stencil of shape (1, 1) but was given shape (" << height << ", " << width << ")" << std::endl;
+        }
+
+        std::vector<float> stencil_vec;
+        stencil_vec.resize(nstencils);
+
+        for(int out=0; out<out_channels; ++out) {
+
+            const float b = bias_ptr[out];
+
+            for (int in = 0; in < in_channels; ++in) {
+
+                for(int n=0; n<nstencils; ++n) {
+                    stencil_vec[n] = weights_ptr[out * in_channels * nstencils + in * nstencils + n];
+                }
+
+                timer.start_timer("CONVOLVE 1x1");
+                filter_fns.convolve1x1_loop(apr, input_features, stencil_vec, b, output, out, in, batch_num, current_max_level);
+                timer.stop_timer();
+            }
+        }
+    }
+
+
+    void convolve1x1_loop_backward(py::array &grad_output, py::array &input_features, py::array &weights, py::array &grad_input, py::array &grad_weights, py::array &grad_bias, int batch_num, int level_delta) {
+
+        PyAPRFiltering filter_fns;
+
+        APRTimer timer(false);
+
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        const unsigned int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
+
+        py::buffer_info input_buf = input_features.request();
+        py::buffer_info weights_buf = weights.request();
+
+        auto weights_ptr = (float *) weights_buf.ptr;
+
+        const size_t out_channels = weights_buf.shape[0];
+        const size_t in_channels = weights_buf.shape[1];
+        const size_t nstencils = weights_buf.shape[2];
+        const size_t height = weights_buf.shape[3];
+        const size_t width = weights_buf.shape[4];
+
+        if(height !=1 || width != 1) {
+            std::cerr << "This function assumes a stencil of shape (1, 1) but was given shape (" << height << ", " << width << ")" << std::endl;
+        }
+
+        std::vector<float> stencil_vec;
+        stencil_vec.resize(nstencils);
+
+        for(int out=0; out<out_channels; ++out) {
+
+            for (int in = 0; in < in_channels; ++in) {
+
+                for(int n=0; n<nstencils; ++n) {
+                    stencil_vec[n] = weights_ptr[out * in_channels * nstencils + in * nstencils + n];
+                }
+
+                timer.start_timer("CONVOLVE 1x1 BACKWARDS");
+                filter_fns.convolve1x1_loop_backward(apr, input_features, stencil_vec, grad_output, grad_input, grad_weights, grad_bias, out, in, batch_num, current_max_level, false);
+                timer.stop_timer();
+            }
+        }
+
+    }
+
+
+    void convolve3x3_loop(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
+
+        PyAPRFiltering filter_fns;
+        APRTimer timer(false);
+
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        const unsigned int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
+
+        py::buffer_info input_buf = input_features.request();
+        py::buffer_info weights_buf = weights.request();
+        py::buffer_info bias_buf = bias.request();
+
+        auto weights_ptr = (float *) weights_buf.ptr;
+        auto bias_ptr = (float *) bias_buf.ptr;
+
+        const size_t out_channels = weights_buf.shape[0];
+        const size_t in_channels = weights_buf.shape[1];
+        const size_t nstencils = weights_buf.shape[2];
+        const size_t height = weights_buf.shape[3];
+        const size_t width = weights_buf.shape[4];
+
+        if(height !=3 || width != 3) {
+            std::cerr << "This function assumes a stencil of shape (3, 3) but was given shape (" << height << ", " << width << ")" << std::endl;
+        }
 
         std::vector<PixelData<float>> stencil_vec;
         stencil_vec.resize(nstencils);
@@ -257,33 +354,37 @@ public:
                         }
                     }
                 }
-                timer.start_timer("FORWARD CONVOLUTION");
-                filter_fns.convolve_equivalent_loop_unrolled(apr, input_features, stencil_vec, b, output, out, in, batch_num, current_max_level);
+                timer.start_timer("CONVOLVE 3x3");
+                filter_fns.convolve3x3_loop_unrolled(apr, input_features, stencil_vec, b, output, out, in, batch_num, current_max_level);
                 timer.stop_timer();
             }
         }
     }
 
 
-    void convolve_loop_backward(py::array &grad_output, py::array &input_features, py::array &weights, py::array &grad_input, py::array &grad_weights, py::array &grad_bias, int batch_num, int level_delta) {
+    void convolve3x3_loop_backward(py::array &grad_output, py::array &input_features, py::array &weights, py::array &grad_input, py::array &grad_weights, py::array &grad_bias, int batch_num, int level_delta) {
 
         PyAPRFiltering filter_fns;
 
-        APRTimer timer(true);
+        APRTimer timer(false);
 
         //unsigned int current_max_level = apr.level_max()-level_delta;
-        int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
+        const unsigned int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
 
         py::buffer_info input_buf = input_features.request();
         py::buffer_info weights_buf = weights.request();
 
         auto weights_ptr = (float *) weights_buf.ptr;
 
-        int out_channels = weights_buf.shape[0];
-        int in_channels = weights_buf.shape[1];
-        int nstencils = weights_buf.shape[2];
-        int height = weights_buf.shape[3];
-        int width = weights_buf.shape[4];
+        const size_t out_channels = weights_buf.shape[0];
+        const size_t in_channels = weights_buf.shape[1];
+        const size_t nstencils = weights_buf.shape[2];
+        const size_t height = weights_buf.shape[3];
+        const size_t width = weights_buf.shape[4];
+
+        if(height !=3 || width != 3) {
+            std::cerr << "This function assumes a stencil of shape (3, 3) but was given shape (" << height << ", " << width << ")" << std::endl;
+        }
 
         std::vector<PixelData<float>> stencil_vec;
         stencil_vec.resize(nstencils);
@@ -308,8 +409,8 @@ public:
                         }
                     }
                 }
-                timer.start_timer("CONVOLVE BACKWARDS");
-                filter_fns.convolve_equivalent_loop_backward(apr, input_features, stencil_vec, grad_output, grad_input, grad_weights, grad_bias, out, in, batch_num, current_max_level, false);
+                timer.start_timer("CONVOLVE 3x3 BACKWARDS");
+                filter_fns.convolve3x3_loop_unrolled_backward(apr, input_features, stencil_vec, grad_output, grad_input, grad_weights, grad_bias, out, in, batch_num, current_max_level, false);
                 timer.stop_timer();
             }
         }
@@ -721,8 +822,10 @@ void AddPyAPR(pybind11::module &m, const std::string &aTypeString) {
             .def("get_levels", &AprType::get_levels, "return the particle levels as a python array")
             .def("convolve_ds_loop", &AprType::convolve_ds_loop, "convolution with stencil downsampling")
             .def("convolve_ds_loop_backward", &AprType::convolve_ds_loop_backward, "backpropagation through convolution with stencil downsampling")
-            .def("convolve_loop", &AprType::convolve_loop, "convolution with possibly different stencils per level")
-            .def("convolve_loop_backward", &AprType::convolve_loop_backward, "backpropagation through convolve_loop")
+            .def("convolve3x3_loop", &AprType::convolve3x3_loop, "3x3 convolution with possibly different stencils per level")
+            .def("convolve3x3_loop_backward", &AprType::convolve3x3_loop_backward, "backpropagation through convolve3x3_loop")
+            .def("convolve1x1_loop", &AprType::convolve1x1_loop, "1x1 convolution with possibly different stencils per level")
+            .def("convolve1x1_loop_backward", &AprType::convolve1x1_loop_backward, "backpropagation through convolve1x1_loop")
             .def("recon", &AprType::recon_newints, "recon with given intensities")
             .def("max_pool", &AprType::max_pool, "max pool downsampling of the maximum level particles")
             .def("max_pool_store_idx", &AprType::max_pool_store_idx, "max pool downsampling, storing indices for fast backward pass")
