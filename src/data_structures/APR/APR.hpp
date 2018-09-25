@@ -180,7 +180,7 @@ public:
         auto apr_iterator = iterator();
         parts.data.resize(apr_iterator.total_number_particles());
 
-        std::cout << "Total number of particles: " << apr_iterator.total_number_particles() << std::endl;
+        //std::cout << "Total number of particles: " << apr_iterator.total_number_particles() << std::endl;
 
         for (unsigned int level = apr_iterator.level_min(); level <= apr_iterator.level_max(); ++level) {
             int z = 0;

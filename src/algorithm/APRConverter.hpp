@@ -142,21 +142,19 @@ inline bool APRConverter<ImageType>::get_apr_method_from_file(APR<ImageType> &aA
             for (size_t i = 0; i < inputImage.mesh.size(); ++i) {
                 inputImage.mesh[i] = (inputImage.mesh[i] - mm.min) * maxValue / (mm.max - mm.min);
             }
-        }
 
-        //normalize the input parameters if required
-        if(par.Ip_th!=-1){
-            std::cout << "Scaled input intensity threshold" << std::endl;
-            par.Ip_th = (par.Ip_th - mm.min)* maxValue / (mm.max - mm.min);
-        }
+            //normalize the input parameters if required
+            if(par.Ip_th!=-1){
+                std::cout << "Scaled input intensity threshold" << std::endl;
+                par.Ip_th = (par.Ip_th - mm.min)* maxValue / (mm.max - mm.min);
+            }
 
-        if(par.min_signal!=-1){
-            std::cout << "Scaled input min signal threshold" << std::endl;
-            par.min_signal = (par.min_signal)* maxValue / (mm.max - mm.min);
+            if(par.min_signal!=-1){
+                std::cout << "Scaled input min signal threshold" << std::endl;
+                par.min_signal = (par.min_signal)* maxValue / (mm.max - mm.min);
+            }
         }
-
     }
-
 
     //auto_parameters(inputImage);
     method_timer.stop_timer();
@@ -448,8 +446,8 @@ void APRConverter<ImageType>::get_local_intensity_scale(PixelData<float> &local_
             fine_grained_timer.stop_timer();
         }
 
-        std::cout << "CPU WINDOWS: " << win_y << " " << win_x << " " << win_z << " " << win_y2 << " " << win_x2 << " "
-                  << win_z2 << std::endl;
+        //std::cout << "CPU WINDOWS: " << win_y << " " << win_x << " " << win_z << " " << win_y2 << " " << win_x2 << " "
+        //          << win_z2 << std::endl;
         fine_grained_timer.start_timer("second_pass_and_rescale");
         //calculate abs and subtract from original
         iLocalIntensityScale.calc_abs_diff(local_scale_temp2, local_scale_temp);

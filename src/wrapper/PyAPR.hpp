@@ -661,13 +661,13 @@ public:
 
         auto image_ptr = (float *) image_buf.ptr;
 
+        /// assuming input array is x-contiguous of shape (channels, height, width)
         size_t number_channels = image_buf.shape[0];
         size_t x_num = image_buf.shape[1];
         size_t y_num = image_buf.shape[2];
 
-        ///
+        /// expand the particle data vector
         apr.particles_intensities.data.resize(number_channels * apr.total_number_particles());
-
 
         for(size_t channel = 0; channel < number_channels; ++channel) {
             PixelData<float> image_temp(y_num, x_num, 1);
@@ -704,15 +704,13 @@ public:
                          apr_iterator.set_iterator_to_particle_next_particle()) {
 
                         apr.particles_intensities.data[apr_iterator.global_index() + parts_offset] =
-                                img_by_level[level].at(apr_iterator.y(), apr_iterator.x(), 0);
+                                img_by_level[level].at(apr_iterator.y(), x, 0);
 
                     }
                 }
                 //}
             }
         }
-
-
     }
 
 
