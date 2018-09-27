@@ -9,6 +9,8 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 
+#include <omp.h>
+
 //#include "ConfigAPR.h"
 #include "data_structures/APR/APR.hpp"
 
@@ -131,6 +133,8 @@ public:
         apr.get_apr(input_img);
 
         apr.apr_access.l_min = 2;
+
+        apr.apr_tree.init(apr);
     }
 
 
@@ -362,6 +366,260 @@ public:
     }
 
 
+    void convolve3x3_loop_alt_in(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
+
+        PyAPRFiltering filter_fns;
+        //APRTimer timer(false);
+
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        const unsigned int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
+
+        py::buffer_info input_buf = input_features.request();
+        py::buffer_info weights_buf = weights.request();
+        py::buffer_info bias_buf = bias.request();
+        py::buffer_info output_buf = output.request(true);
+
+        auto weights_ptr = (float *) weights_buf.ptr;
+        auto bias_ptr = (float *) bias_buf.ptr;
+        auto output_ptr = (float *) output_buf.ptr;
+        auto input_ptr = (float *) input_buf.ptr;
+
+        const size_t out_channels = weights_buf.shape[0];
+        const size_t in_channels = weights_buf.shape[1];
+        const size_t nstencils = weights_buf.shape[2];
+        const size_t height = weights_buf.shape[3];
+        const size_t width = weights_buf.shape[4];
+
+        const size_t number_in_channels = input_buf.shape[1];
+        const size_t nparticles = input_buf.shape[2];
+
+        if(height !=3 || width != 3) {
+            std::cerr << "This function assumes a stencil of shape (3, 3) but was given shape (" << height << ", " << width << ")" << std::endl;
+        }
+
+        //apr.apr_tree.init(apr);
+        int in;
+        auto apr_iterator = apr.iterator();
+        auto tree_iterator = apr.apr_tree.tree_iterator();
+
+#pragma omp parallel for schedule(dynamic) private(in) firstprivate(apr_iterator, tree_iterator)
+        for(in=0; in<in_channels; ++in) {
+
+            const uint64_t in_offset = batch_num * number_in_channels * nparticles + in * nparticles;
+
+            /**** initialize and fill the apr tree ****/
+
+            ExtraParticleData<float> tree_data;
+
+
+            filter_fns.fill_tree_mean_py_ptr(apr, apr.apr_tree, input_ptr, tree_data, in_offset, current_max_level);
+
+            int out;
+            for (out = 0; out < out_channels; ++out) {
+
+                //std::cout << "hello from thread " << omp_get_thread_num() << std::endl;
+                const uint64_t out_offset = batch_num * out_channels * nparticles + out * nparticles;
+
+                float b = bias_ptr[out];
+
+                std::vector<PixelData<float>> stencil_vec;
+                stencil_vec.resize(nstencils);
+
+                for(int n=0; n<nstencils; ++n) {
+
+                    stencil_vec[n].init(height, width, 1);
+
+                    int offset = out * in_channels * nstencils * 9 + in * nstencils * 9 + n * 9;
+                    int idx = 0;
+
+                    for (int y = 0; y < height; ++y) {
+                        for (int x = 0; x < width; ++x) {
+                            //stencil_vec[n].at(y, x, 0) = weights_ptr[offset + idx];
+                            stencil_vec[n].mesh[idx] = weights_ptr[offset + idx];
+
+                            idx++;
+                        }
+                    }
+                }
+                //timer.start_timer("CONVOLVE 3x3");
+                filter_fns.convolve3x3_loop_unrolled_alt(apr, input_ptr, stencil_vec, b, out, in, batch_num,
+                                                         current_max_level, in_offset, tree_data, apr_iterator,
+                                                         tree_iterator, number_in_channels, out_offset, output_ptr);
+                //timer.stop_timer();
+            }
+        }
+    }
+
+
+    void convolve3x3_loop_alt_out(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
+
+        PyAPRFiltering filter_fns;
+        //APRTimer timer(false);
+
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        const unsigned int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
+
+        py::buffer_info input_buf = input_features.request();
+        py::buffer_info weights_buf = weights.request();
+        py::buffer_info bias_buf = bias.request();
+        py::buffer_info output_buf = output.request(true);
+
+        auto weights_ptr = (float *) weights_buf.ptr;
+        auto bias_ptr = (float *) bias_buf.ptr;
+        auto output_ptr = (float *) output_buf.ptr;
+        auto input_ptr = (float *) input_buf.ptr;
+
+        const size_t out_channels = weights_buf.shape[0];
+        const size_t in_channels = weights_buf.shape[1];
+        const size_t nstencils = weights_buf.shape[2];
+        const size_t height = weights_buf.shape[3];
+        const size_t width = weights_buf.shape[4];
+
+        const size_t number_in_channels = input_buf.shape[1];
+        const size_t nparticles = input_buf.shape[2];
+
+        if(height !=3 || width != 3) {
+            std::cerr << "This function assumes a stencil of shape (3, 3) but was given shape (" << height << ", " << width << ")" << std::endl;
+        }
+
+        //apr.apr_tree.init(apr);
+        int in;
+        auto apr_iterator = apr.iterator();
+        auto tree_iterator = apr.apr_tree.tree_iterator();
+
+        for(in=0; in<in_channels; ++in) {
+
+            const uint64_t in_offset = batch_num * number_in_channels * nparticles + in * nparticles;
+
+            /**** initialize and fill the apr tree ****/
+
+            ExtraParticleData<float> tree_data;
+
+
+            filter_fns.fill_tree_mean_py_ptr(apr, apr.apr_tree, input_ptr, tree_data, in_offset, current_max_level);
+
+            int out;
+#pragma omp parallel for schedule(dynamic) private(out) firstprivate(apr_iterator, tree_iterator)
+            for (out = 0; out < out_channels; ++out) {
+
+                //std::cout << "hello from thread " << omp_get_thread_num() << std::endl;
+                const uint64_t out_offset = batch_num * out_channels * nparticles + out * nparticles;
+
+                float b = bias_ptr[out];
+
+                std::vector<PixelData<float>> stencil_vec;
+                stencil_vec.resize(nstencils);
+
+                for(int n=0; n<nstencils; ++n) {
+
+                    stencil_vec[n].init(height, width, 1);
+
+                    int offset = out * in_channels * nstencils * 9 + in * nstencils * 9 + n * 9;
+                    int idx = 0;
+
+                    for (int y = 0; y < height; ++y) {
+                        for (int x = 0; x < width; ++x) {
+                            //stencil_vec[n].at(y, x, 0) = weights_ptr[offset + idx];
+                            stencil_vec[n].mesh[idx] = weights_ptr[offset + idx];
+
+                            idx++;
+                        }
+                    }
+                }
+                //timer.start_timer("CONVOLVE 3x3");
+                filter_fns.convolve3x3_loop_unrolled_alt(apr, input_ptr, stencil_vec, b, out, in, batch_num,
+                                                         current_max_level, in_offset, tree_data, apr_iterator,
+                                                         tree_iterator, number_in_channels, out_offset, output_ptr);
+                //timer.stop_timer();
+            }
+        }
+    }
+
+
+    void convolve3x3_loop_alt_none(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
+
+        PyAPRFiltering filter_fns;
+        //APRTimer timer(false);
+
+        //unsigned int current_max_level = apr.level_max()-level_delta;
+        const unsigned int current_max_level = std::max(apr.level_max() - level_delta, apr.level_min());
+
+        py::buffer_info input_buf = input_features.request();
+        py::buffer_info weights_buf = weights.request();
+        py::buffer_info bias_buf = bias.request();
+        py::buffer_info output_buf = output.request(true);
+
+        auto weights_ptr = (float *) weights_buf.ptr;
+        auto bias_ptr = (float *) bias_buf.ptr;
+        auto output_ptr = (float *) output_buf.ptr;
+        auto input_ptr = (float *) input_buf.ptr;
+
+        const size_t out_channels = weights_buf.shape[0];
+        const size_t in_channels = weights_buf.shape[1];
+        const size_t nstencils = weights_buf.shape[2];
+        const size_t height = weights_buf.shape[3];
+        const size_t width = weights_buf.shape[4];
+
+        const size_t number_in_channels = input_buf.shape[1];
+        const size_t nparticles = input_buf.shape[2];
+
+        if(height !=3 || width != 3) {
+            std::cerr << "This function assumes a stencil of shape (3, 3) but was given shape (" << height << ", " << width << ")" << std::endl;
+        }
+
+        //apr.apr_tree.init(apr);
+        int in;
+        auto apr_iterator = apr.iterator();
+        auto tree_iterator = apr.apr_tree.tree_iterator();
+
+        for(in=0; in<in_channels; ++in) {
+
+            const uint64_t in_offset = batch_num * number_in_channels * nparticles + in * nparticles;
+
+            /**** initialize and fill the apr tree ****/
+
+            ExtraParticleData<float> tree_data;
+
+
+            filter_fns.fill_tree_mean_py_ptr(apr, apr.apr_tree, input_ptr, tree_data, in_offset, current_max_level);
+
+            int out;
+            for (out = 0; out < out_channels; ++out) {
+
+                //std::cout << "hello from thread " << omp_get_thread_num() << std::endl;
+                const uint64_t out_offset = batch_num * out_channels * nparticles + out * nparticles;
+
+                float b = bias_ptr[out];
+
+                std::vector<PixelData<float>> stencil_vec;
+                stencil_vec.resize(nstencils);
+
+                for(int n=0; n<nstencils; ++n) {
+
+                    stencil_vec[n].init(height, width, 1);
+
+                    int offset = out * in_channels * nstencils * 9 + in * nstencils * 9 + n * 9;
+                    int idx = 0;
+
+                    for (int y = 0; y < height; ++y) {
+                        for (int x = 0; x < width; ++x) {
+                            //stencil_vec[n].at(y, x, 0) = weights_ptr[offset + idx];
+                            stencil_vec[n].mesh[idx] = weights_ptr[offset + idx];
+
+                            idx++;
+                        }
+                    }
+                }
+                //timer.start_timer("CONVOLVE 3x3");
+                filter_fns.convolve3x3_loop_unrolled_alt(apr, input_ptr, stencil_vec, b, out, in, batch_num,
+                                                         current_max_level, in_offset, tree_data, apr_iterator,
+                                                         tree_iterator, number_in_channels, out_offset, output_ptr);
+                //timer.stop_timer();
+            }
+        }
+    }
+
+
     void convolve3x3_loop_backward(py::array &grad_output, py::array &input_features, py::array &weights, py::array &grad_input, py::array &grad_weights, py::array &grad_bias, int batch_num, int level_delta) {
 
         PyAPRFiltering filter_fns;
@@ -569,7 +827,7 @@ public:
         /// Find the current maximum level using the shape of the input
         //unsigned int current_max_level = apr.level_max()-level_delta;
         unsigned int current_max_level = std::max(apr.level_max()-level_delta, apr.level_min()); //filter_fns.find_max_level(apr, input_features, true);
-        apr.apr_tree.init(apr);
+        //apr.apr_tree.init(apr);
 
         /// now perform the max pooling, one channel at a time
         for( int channel = 0; channel < number_channels; ++channel) {
@@ -577,6 +835,7 @@ public:
         }
         timer.stop_timer();
     }
+
 
     //py::array
     void max_pool_backward(py::array &grad_output, py::array &grad_input, py::array &input_features, int batch_num, int level_delta) {
@@ -593,7 +852,7 @@ public:
         /// Find the current maximum level using the shape of the input
         //unsigned int current_max_level = apr.level_max()-level_delta;
         unsigned int current_max_level = std::max(apr.level_max()-level_delta, apr.level_min());//filter_fns.find_max_level(apr, input_features, true);
-        apr.apr_tree.init(apr);
+        //apr.apr_tree.init(apr);
 
         /// now perform the max pooling, one channel at a time
         for( int channel = 0; channel < number_channels; ++channel) {
@@ -800,6 +1059,7 @@ public:
         }
     }
 
+
 };
 
 // -------- Templated wrapper -------------------------------------------------
@@ -821,6 +1081,9 @@ void AddPyAPR(pybind11::module &m, const std::string &aTypeString) {
             .def("convolve_ds_loop", &AprType::convolve_ds_loop, "convolution with stencil downsampling")
             .def("convolve_ds_loop_backward", &AprType::convolve_ds_loop_backward, "backpropagation through convolution with stencil downsampling")
             .def("convolve3x3_loop", &AprType::convolve3x3_loop, "3x3 convolution with possibly different stencils per level")
+            .def("convolve3x3_loop_alt_in", &AprType::convolve3x3_loop_alt_in, "3x3 convolution with possibly different stencils per level")
+            .def("convolve3x3_loop_alt_out", &AprType::convolve3x3_loop_alt_out, "3x3 convolution with possibly different stencils per level")
+            .def("convolve3x3_loop_alt_none", &AprType::convolve3x3_loop_alt_none, "3x3 convolution with possibly different stencils per level")
             .def("convolve3x3_loop_backward", &AprType::convolve3x3_loop_backward, "backpropagation through convolve3x3_loop")
             .def("convolve1x1_loop", &AprType::convolve1x1_loop, "1x1 convolution with possibly different stencils per level")
             .def("convolve1x1_loop_backward", &AprType::convolve1x1_loop_backward, "backpropagation through convolve1x1_loop")
