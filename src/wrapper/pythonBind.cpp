@@ -11,6 +11,7 @@
 
 #include "PyPixelData.hpp"
 #include "PyAPR.hpp"
+#include "DataParallelOps.hpp"
 
 
 namespace py = pybind11;
@@ -64,5 +65,10 @@ PYBIND11_MODULE(APR_PYTHON_MODULE_NAME, m) {
             .def_readwrite("input_dir", &APRParameters::input_dir)
             .def_readwrite("mask_file", &APRParameters::mask_file)
             .def_readwrite("full_resolution", &APRParameters::full_resolution);
+
+    py::class_<DataParallelOps>(m, "DataParallelOps")
+            .def(py::init())
+            .def("convolve3x3", &DataParallelOps::convolve3x3, "blabla")
+            .def("convolve3x3_2D", &DataParallelOps::convolve3x3_2D, "eee");
 
 }

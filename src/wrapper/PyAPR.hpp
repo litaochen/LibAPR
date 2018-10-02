@@ -9,8 +9,6 @@
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 
-#include <omp.h>
-
 //#include "ConfigAPR.h"
 #include "data_structures/APR/APR.hpp"
 
@@ -22,10 +20,12 @@ namespace py = pybind11;
 // -------- Utility classes to be wrapped in python ----------------------------
 template <typename T>
 class PyAPR {
-    template<typename> friend class PyPixelData;
-    APR <T> apr;
+    //template<typename> friend class PyPixelData, DataParallelOps;
+    friend class DataParallelOps;
 
 public:
+
+    APR<T> apr;
 
     PyAPR () {}
 
@@ -672,7 +672,6 @@ public:
                 timer.stop_timer();
             }
         }
-
     }
 
 

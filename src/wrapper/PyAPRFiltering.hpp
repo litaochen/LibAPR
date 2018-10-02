@@ -766,7 +766,7 @@ public:
                             neigh_sum += bias;
                         }
 
-                        //output_ptr[out_offset + apr_iterator.global_index()] += neigh_sum;
+                        output_ptr[out_offset + apr_iterator.global_index()] += neigh_sum;
 
                     }//y, pixels/columns (apr)
                 }//x , rows (apr)
@@ -802,19 +802,145 @@ public:
                                 neigh_sum += bias;
                             }
 
-                            //output_ptr[out_offset + tree_iterator.global_index() + tree_offset] += neigh_sum;
+                            output_ptr[out_offset + tree_iterator.global_index() + tree_offset] += neigh_sum;
 
                         }//y, pixels/columns (tree)
                     }//x, rows (tree)
                     timer.stop_timer();
                 } //if
-
             }//z
 
             // Use the next stencil (if available). The last supplied stencil will be used for all remaining levels.
             stencil_counter = std::min(stencil_counter + 1, (int) stencil_vec.size() - 1);
         }//levels
     }
+
+
+
+    template<typename ImageType, typename T>
+    void convolve3x3_loop_unrolled_a2D(APR<ImageType> &apr, float * input_intensities,
+                                       const std::vector<PixelData<T>>& stencil_vec, float bias,
+                                       int out_channel, int in_channel, int batch_num, int current_max_level,
+                                       const uint64_t in_offset, ExtraParticleData<float> &tree_data, APRIterator &apr_iterator,
+                                       APRTreeIterator &tree_iterator, const size_t number_in_channels,
+                                       const uint64_t out_offset, float * output_ptr) {
+
+        APRTimer timer(false);
+
+        int stencil_counter = 0;
+
+        for (int level = current_max_level; level >= apr_iterator.level_min(); --level) {
+
+            const std::vector<int> stencil_shape = {3, 3, 1};
+            const std::vector<int> stencil_half = {1, 1, 0};
+
+            unsigned int x = 0;
+
+            const int y_num_m = (apr.apr_access.org_dims[0] > 1) ? apr_iterator.spatial_index_y_max(level) +
+                                                                   stencil_shape[0] - 1 : 1;
+            const int x_num = apr_iterator.spatial_index_x_max(level);
+
+            timer.start_timer("init temp vec");
+
+            PixelData<float> temp_vec;
+            temp_vec.init(y_num_m, 3, 1, 0); //zero padded boundaries
+
+            timer.stop_timer();
+
+            timer.start_timer("update temp vec first ('pad')");
+            //initial condition
+            for (int padd = 0; padd < 1; ++padd) {
+                update_dense_array2D(level, padd, apr, apr_iterator, tree_iterator, tree_data, temp_vec,
+                                     input_intensities, stencil_shape, stencil_half, in_offset);
+            }
+            timer.stop_timer();
+
+            for (x = 0; x < x_num; ++x) {
+
+                if (x < (x_num - 1)) {
+                    //update the next z plane for the access
+                    timer.start_timer("update_dense_array");
+                    update_dense_array2D(level, x + 1, apr, apr_iterator, tree_iterator, tree_data,
+                                        temp_vec, input_intensities, stencil_shape, stencil_half, in_offset);
+                    timer.stop_timer();
+                } else {
+                    //padding
+                    std::fill(temp_vec.mesh.begin() + ((x+1) % 3) * temp_vec.y_num,
+                              temp_vec.mesh.begin() + (((x+1) % 3) + 1) * temp_vec.y_num, 0);
+
+                }
+
+                //std::string fileName = "/Users/joeljonsson/Documents/STUFF/temp_vec_lvl" + std::to_string(level) + ".tif";
+                //TiffUtils::saveMeshAsTiff(fileName, temp_vec);
+
+                const size_t x0 = (x+2) % 3;
+                const size_t x1 = (x+0) % 3;
+                const size_t x2 = (x+1) % 3;
+
+                /// Compute convolution output at apr particles
+                timer.start_timer("convolve apr particles");
+
+                for (apr_iterator.set_new_lzx(level, 0, x);
+                     apr_iterator.global_index() < apr_iterator.end_index;
+                     apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                    float neigh_sum = temp_vec.at(apr_iterator.y(),   x0, 0) * stencil_vec[stencil_counter].mesh[0] +
+                                      temp_vec.at(apr_iterator.y()+1, x0, 0) * stencil_vec[stencil_counter].mesh[1] +
+                                      temp_vec.at(apr_iterator.y()+2, x0, 0) * stencil_vec[stencil_counter].mesh[2] +
+                                      temp_vec.at(apr_iterator.y(),   x1, 0) * stencil_vec[stencil_counter].mesh[3] +
+                                      temp_vec.at(apr_iterator.y()+1, x1, 0) * stencil_vec[stencil_counter].mesh[4] +
+                                      temp_vec.at(apr_iterator.y()+2, x1, 0) * stencil_vec[stencil_counter].mesh[5] +
+                                      temp_vec.at(apr_iterator.y(),   x2, 0) * stencil_vec[stencil_counter].mesh[6] +
+                                      temp_vec.at(apr_iterator.y()+1, x2, 0) * stencil_vec[stencil_counter].mesh[7] +
+                                      temp_vec.at(apr_iterator.y()+2, x2, 0) * stencil_vec[stencil_counter].mesh[8];
+
+                    if(in_channel == number_in_channels-1) {
+                        neigh_sum += bias;
+                    }
+
+                    output_ptr[out_offset + apr_iterator.global_index()] += neigh_sum;
+
+                }//y, pixels/columns (apr)
+
+                timer.stop_timer();
+
+                /// if there are downsampled values, we need to use the tree iterator for those outputs
+                if(level == current_max_level && current_max_level < apr.level_max()) {
+
+                    timer.start_timer("convolve tree particles");
+
+                    const int64_t tree_offset = compute_tree_offset(apr, level, false);
+
+                    for (tree_iterator.set_new_lzx(level, 0, x);
+                         tree_iterator.global_index() < tree_iterator.end_index;
+                         tree_iterator.set_iterator_to_particle_next_particle()) {
+
+                        float neigh_sum = temp_vec.at(tree_iterator.y(),   x0, 0) * stencil_vec[stencil_counter].mesh[0] +
+                                          temp_vec.at(tree_iterator.y()+1, x0, 0) * stencil_vec[stencil_counter].mesh[1] +
+                                          temp_vec.at(tree_iterator.y()+2, x0, 0) * stencil_vec[stencil_counter].mesh[2] +
+                                          temp_vec.at(tree_iterator.y(),   x1, 0) * stencil_vec[stencil_counter].mesh[3] +
+                                          temp_vec.at(tree_iterator.y()+1, x1, 0) * stencil_vec[stencil_counter].mesh[4] +
+                                          temp_vec.at(tree_iterator.y()+2, x1, 0) * stencil_vec[stencil_counter].mesh[5] +
+                                          temp_vec.at(tree_iterator.y(),   x2, 0) * stencil_vec[stencil_counter].mesh[6] +
+                                          temp_vec.at(tree_iterator.y()+1, x2, 0) * stencil_vec[stencil_counter].mesh[7] +
+                                          temp_vec.at(tree_iterator.y()+2, x2, 0) * stencil_vec[stencil_counter].mesh[8];
+
+                        if (in_channel == number_in_channels - 1) {
+                            neigh_sum += bias;
+                        }
+
+                        output_ptr[out_offset + tree_iterator.global_index() + tree_offset] += neigh_sum;
+
+                    }//y, pixels/columns (tree)
+                    timer.stop_timer();
+                } //if
+            }//x
+
+            // Use the next stencil (if available). The last supplied stencil will be used for all remaining levels.
+            stencil_counter = std::min(stencil_counter + 1, (int) stencil_vec.size() - 1);
+        }//levels
+    }
+
 
 
     template<typename ImageType>
@@ -1466,6 +1592,68 @@ public:
                     temp_vec.at(treeIterator.y() + stencil_half[0], x + stencil_half[1],
                                 z % stencil_shape[2]) = tree_data[treeIterator];
                 }
+            }
+        }
+    }
+
+
+    template<typename ImageType>
+    void update_dense_array2D(const uint64_t level,
+                              const uint64_t x,
+                              APR<ImageType> &apr,
+                              APRIterator &apr_iterator,
+                              APRTreeIterator &treeIterator,
+                              ExtraParticleData<float> &tree_data,
+                              PixelData<float> &temp_vec,
+                              float * part_int,
+                              const std::vector<int> &stencil_shape,
+                              const std::vector<int> &stencil_half,
+                              uint64_t in_offset) {
+
+        //py::buffer_info particleData = particle_intensities.request(); // pybind11::buffer_info to access data
+        //auto part_int = (float *) particleData.ptr;
+
+        const uint64_t y_num_m = temp_vec.y_num;
+
+        uint64_t mesh_offset = (x % stencil_shape[1]) * y_num_m + stencil_half[0];
+
+        for (apr_iterator.set_new_lzx(level, 0, x);
+             apr_iterator.global_index() < apr_iterator.end_index;
+             apr_iterator.set_iterator_to_particle_next_particle()) {
+
+            temp_vec.mesh[apr_iterator.y() + mesh_offset] = part_int[apr_iterator.global_index() + in_offset];
+        }
+
+
+        if (level > apr_iterator.level_min()) {
+            const int y_num = apr_iterator.spatial_index_y_max(level);
+
+            //
+            //  This loop interpolates particles at a lower level (Larger Particle Cell or resolution), by simple uploading
+            //
+
+            for (apr_iterator.set_new_lzx(level - 1, 0, x / 2);
+                 apr_iterator.global_index() < apr_iterator.end_index;
+                 apr_iterator.set_iterator_to_particle_next_particle()) {
+
+                int y_m = std::min(2 * apr_iterator.y() + 1, y_num - 1);    // 2y+1+offset
+
+                temp_vec.at(2 * apr_iterator.y() + stencil_half[0], x % stencil_shape[1], 0) = part_int[apr_iterator.global_index() + in_offset];
+
+                temp_vec.at(y_m + stencil_half[0], x % stencil_shape[1], 0) = part_int[apr_iterator.global_index() + in_offset];
+
+            }
+        }
+
+        /******** start of using the tree iterator for downsampling ************/
+
+        if (level < apr_iterator.level_max()) {
+
+            for (treeIterator.set_new_lzx(level, 0, x);
+                 treeIterator.global_index() < treeIterator.end_index;
+                 treeIterator.set_iterator_to_particle_next_particle()) {
+
+                temp_vec.at(treeIterator.y() + stencil_half[0], x % stencil_shape[1], 0) = tree_data[treeIterator];
             }
         }
     }
