@@ -68,7 +68,11 @@ PYBIND11_MODULE(APR_PYTHON_MODULE_NAME, m) {
 
     py::class_<DataParallelOps>(m, "DataParallelOps")
             .def(py::init())
-            .def("convolve3x3", &DataParallelOps::convolve3x3, "blabla")
-            .def("convolve3x3_2D", &DataParallelOps::convolve3x3_2D, "eee");
+            .def("convolve3x3", &DataParallelOps::convolve3x3, "3x3 convolution with thread parallelism over the batch")
+            .def("convolve3x3_backward", &DataParallelOps::convolve3x3_backward, "backpropagation through convolve1x1")
+            .def("convolve1x1", &DataParallelOps::convolve1x1, "1x1 convolution with thread parallelism over the batch")
+            .def("convolve1x1_backward", &DataParallelOps::convolve1x1_backward, "backpropagation through convolve1x1")
+            .def("max_pool", &DataParallelOps::max_pool, "max pooling of (current) max level particles")
+            .def("max_pool_backward", &DataParallelOps::max_pool_backward, "backpropagation through max_pool");
 
 }

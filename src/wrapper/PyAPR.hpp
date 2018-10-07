@@ -161,7 +161,9 @@ public:
 
         auto v = new std::vector<T>(apr.particles_intensities.data);
 
-        auto capsule = py::capsule(v, [](void *v) { delete reinterpret_cast<std::vector<int>*>(v); });
+        //auto v = &apr.particles_intensities.data;
+
+        auto capsule = py::capsule(v, [](void *v) { delete reinterpret_cast<std::vector<float>*>(v); });
         return py::array(v->size(), v->data(), capsule);
 
         /*
@@ -212,12 +214,12 @@ public:
             }
         }
 
-        auto capsule = py::capsule(levels, [](void *levels) { delete reinterpret_cast<std::vector<int>*>(levels); });
+        auto capsule = py::capsule(levels, [](void *levels) { delete reinterpret_cast<std::vector<float>*>(levels); });
         return py::array(levels->size(), levels->data(), capsule);
 
     }
 
-
+    /*
     void convolve1x1_loop(py::array &input_features, py::array &weights, py::array &bias, py::array &output, int batch_num, int level_delta) {
 
         PyAPRFiltering filter_fns;
@@ -407,12 +409,13 @@ public:
 
             const uint64_t in_offset = batch_num * number_in_channels * nparticles + in * nparticles;
 
-            /**** initialize and fill the apr tree ****/
+            /// initialize and fill the apr tree
 
             ExtraParticleData<float> tree_data;
 
 
-            filter_fns.fill_tree_mean_py_ptr(apr, apr.apr_tree, input_ptr, tree_data, in_offset, current_max_level);
+            filter_fns.fill_tree_mean_py_ptr(apr, apr.apr_tree, input_ptr, tree_data, apr_iterator, tree_iterator,
+                                             in_offset, current_max_level);
 
             int out;
             for (out = 0; out < out_channels; ++out) {
@@ -442,9 +445,9 @@ public:
                     }
                 }
                 //timer.start_timer("CONVOLVE 3x3");
-                filter_fns.convolve3x3_loop_unrolled_alt(apr, input_ptr, stencil_vec, b, out, in, batch_num,
-                                                         current_max_level, in_offset, tree_data, apr_iterator,
-                                                         tree_iterator, number_in_channels, out_offset, output_ptr);
+                filter_fns.convolve3x3_batchparallel(apr, input_ptr, stencil_vec, b, out, in, current_max_level,
+                                                     in_offset, tree_data, apr_iterator, tree_iterator,
+                                                     number_in_channels, out_offset, output_ptr);
                 //timer.stop_timer();
             }
         }
@@ -491,12 +494,13 @@ public:
 
             const uint64_t in_offset = batch_num * number_in_channels * nparticles + in * nparticles;
 
-            /**** initialize and fill the apr tree ****/
+            /// initialize and fill the apr tree
 
             ExtraParticleData<float> tree_data;
 
 
-            filter_fns.fill_tree_mean_py_ptr(apr, apr.apr_tree, input_ptr, tree_data, in_offset, current_max_level);
+            filter_fns.fill_tree_mean_py_ptr(apr, apr.apr_tree, input_ptr, tree_data, apr_iterator, tree_iterator,
+                                             in_offset, current_max_level);
 
             int out;
 #pragma omp parallel for schedule(dynamic) private(out) firstprivate(apr_iterator, tree_iterator)
@@ -527,9 +531,9 @@ public:
                     }
                 }
                 //timer.start_timer("CONVOLVE 3x3");
-                filter_fns.convolve3x3_loop_unrolled_alt(apr, input_ptr, stencil_vec, b, out, in, batch_num,
-                                                         current_max_level, in_offset, tree_data, apr_iterator,
-                                                         tree_iterator, number_in_channels, out_offset, output_ptr);
+                filter_fns.convolve3x3_batchparallel(apr, input_ptr, stencil_vec, b, out, in, current_max_level,
+                                                     in_offset, tree_data, apr_iterator, tree_iterator,
+                                                     number_in_channels, out_offset, output_ptr);
                 //timer.stop_timer();
             }
         }
@@ -576,12 +580,13 @@ public:
 
             const uint64_t in_offset = batch_num * number_in_channels * nparticles + in * nparticles;
 
-            /**** initialize and fill the apr tree ****/
+            /// initialize and fill the apr tree
 
             ExtraParticleData<float> tree_data;
 
 
-            filter_fns.fill_tree_mean_py_ptr(apr, apr.apr_tree, input_ptr, tree_data, in_offset, current_max_level);
+            filter_fns.fill_tree_mean_py_ptr(apr, apr.apr_tree, input_ptr, tree_data, apr_iterator, tree_iterator,
+                                             in_offset, current_max_level);
 
             int out;
             for (out = 0; out < out_channels; ++out) {
@@ -611,9 +616,9 @@ public:
                     }
                 }
                 //timer.start_timer("CONVOLVE 3x3");
-                filter_fns.convolve3x3_loop_unrolled_alt(apr, input_ptr, stencil_vec, b, out, in, batch_num,
-                                                         current_max_level, in_offset, tree_data, apr_iterator,
-                                                         tree_iterator, number_in_channels, out_offset, output_ptr);
+                filter_fns.convolve3x3_batchparallel(apr, input_ptr, stencil_vec, b, out, in, current_max_level,
+                                                     in_offset, tree_data, apr_iterator, tree_iterator,
+                                                     number_in_channels, out_offset, output_ptr);
                 //timer.stop_timer();
             }
         }
@@ -753,6 +758,10 @@ public:
         }
     }
 
+
+    */
+
+
     int total_num_particles() {
         return apr.total_number_particles();
     }
@@ -772,16 +781,9 @@ public:
         return number_parts_out;
     }
 
-    /**
-     * max pool operation where the indices of the maximum elements are stored for fast backpropagation. Provides
-     * a significant speedup during training and only a small slowdown of the forward pass.
-     *
-     * @param input_features
-     * @param output
-     * @param batch_num
-     * @param level_delta
-     * @param index_arr
-     */
+
+    /*
+
     void max_pool_store_idx(py::array &input_features, py::array &output, int batch_num, int level_delta, py::array &index_arr) {
 
         APRTimer timer(false);
@@ -883,7 +885,6 @@ public:
             }
         }
         timer.stop_timer();
-
     }
 
 
@@ -911,6 +912,8 @@ public:
         }
         timer.stop_timer();
     }
+
+    */
 
 
     void sample_multichannel_image(py::array &image) {
@@ -1077,7 +1080,7 @@ void AddPyAPR(pybind11::module &m, const std::string &aTypeString) {
             .def("get_apr_from_file", &AprType::get_apr_from_file, "Construct APR from input .tif image")
             .def("get_intensities", &AprType::get_intensities, "return the particle intensities as a python array")
             .def("get_levels", &AprType::get_levels, "return the particle levels as a python array")
-            .def("convolve_ds_loop", &AprType::convolve_ds_loop, "convolution with stencil downsampling")
+            /*.def("convolve_ds_loop", &AprType::convolve_ds_loop, "convolution with stencil downsampling")
             .def("convolve_ds_loop_backward", &AprType::convolve_ds_loop_backward, "backpropagation through convolution with stencil downsampling")
             .def("convolve3x3_loop", &AprType::convolve3x3_loop, "3x3 convolution with possibly different stencils per level")
             .def("convolve3x3_loop_alt_in", &AprType::convolve3x3_loop_alt_in, "3x3 convolution with possibly different stencils per level")
@@ -1086,11 +1089,11 @@ void AddPyAPR(pybind11::module &m, const std::string &aTypeString) {
             .def("convolve3x3_loop_backward", &AprType::convolve3x3_loop_backward, "backpropagation through convolve3x3_loop")
             .def("convolve1x1_loop", &AprType::convolve1x1_loop, "1x1 convolution with possibly different stencils per level")
             .def("convolve1x1_loop_backward", &AprType::convolve1x1_loop_backward, "backpropagation through convolve1x1_loop")
-            .def("recon", &AprType::recon_newints, "recon with given intensities")
             .def("max_pool", &AprType::max_pool, "max pool downsampling of the maximum level particles")
             .def("max_pool_store_idx", &AprType::max_pool_store_idx, "max pool downsampling, storing indices for fast backward pass")
             .def("max_pool_backward", &AprType::max_pool_backward, "backpropagation through max pooling")
-            .def("max_pool_backward_store_idx", &AprType::max_pool_backward_store_idx, "backprop max pool with stored indices")
+            .def("max_pool_backward_store_idx", &AprType::max_pool_backward_store_idx, "backprop max pool with stored indices")*/
+            .def("recon", &AprType::recon_newints, "recon with given intensities")
             .def("nparticles", &AprType::total_num_particles, "return number of particles")
             .def("number_particles_after_maxpool", &AprType::compute_particles_after_maxpool, "computes the number of particles in the output of max_pool")
             .def("sample_channels", &AprType::sample_multichannel_image, "samples each channel of the input image separately");
