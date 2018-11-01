@@ -982,7 +982,7 @@ public:
      * @param intensities   (numpy) array
      * @return              PyPixelData reconstruction (can be cast to numpy in python w/o copy)
      */
-    PyPixelData<T> recon_newints(py::array &intensities, int level_delta=0) {
+    PyPixelData<T> recon_newints(py::array &intensities, int level_delta) {
 
         PyAPRFiltering filter_fns;
 

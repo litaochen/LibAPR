@@ -68,6 +68,8 @@ PYBIND11_MODULE(APR_PYTHON_MODULE_NAME, m) {
 
     py::class_<DataParallelOps>(m, "DataParallelOps")
             .def(py::init())
+            .def("convolve", &DataParallelOps::convolve, "nxn convolution with thread parallelism over the batch")
+            .def("convolve_backward", &DataParallelOps::convolve_backward, "backpropagation through convolve")
             .def("convolve3x3", &DataParallelOps::convolve3x3, "3x3 convolution with thread parallelism over the batch")
             .def("convolve3x3_backward", &DataParallelOps::convolve3x3_backward, "backpropagation through convolve1x1")
             .def("convolve1x1", &DataParallelOps::convolve1x1, "1x1 convolution with thread parallelism over the batch")
